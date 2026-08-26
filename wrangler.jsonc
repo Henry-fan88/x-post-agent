@@ -19,12 +19,12 @@
   },
 
   // Agent memory: style profile, writing samples, learned preferences, draft history.
-  // Create with `npm run db:create`, then paste the returned id into database_id below.
+  // Created with `npm run db:create`. Recreate with that if you ever need a fresh one.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "x-post-agent-db",
-      "database_id": "PLACEHOLDER_RUN_npm_run_db_create",
+      "database_id": "4b0c6f64-9ece-45e0-ab72-c39526ed7414",
       "migrations_dir": "migrations"
     }
   ],
@@ -33,12 +33,14 @@
   // X_BEARER_TOKEN, APP_PASSWORD) are set with `wrangler secret put` in prod
   // and in .dev.vars locally -- never here.
   "vars": {
-    // "mock" runs the whole pipeline with no API key so you can click around today.
-    // Switch to: "anthropic" | "openai" | "workers-ai"
-    "MODEL_PROVIDER": "mock",
-    "MODEL_ID": "",
-    // Only needed for OpenAI-compatible gateways (OpenRouter, Groq, DeepSeek, vLLM, ...)
-    "MODEL_BASE_URL": "",
+    // "openai" is the OpenAI-compatible adapter; OpenRouter speaks that shape.
+    // Other options: "anthropic" | "workers-ai" | "mock" (runs with no key).
+    "MODEL_PROVIDER": "openai",
+    "MODEL_ID": "anthropic/claude-sonnet-5",
+    "MODEL_BASE_URL": "https://openrouter.ai/api/v1",
+    // How to ask for JSON: "schema" | "object" | "off". Drop to "object" or
+    // "off" if you switch to a model that rejects response_format.
+    "MODEL_JSON_MODE": "schema",
     // "none" | "brave" | "tavily" | "exa"
     "SEARCH_PROVIDER": "none",
     // Default X character budget. 280 free, 25000 premium.

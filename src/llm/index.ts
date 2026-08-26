@@ -8,7 +8,7 @@
 
 import { anthropicModel } from "./anthropic";
 import { mockModel } from "./mock";
-import { openAiModel } from "./openai";
+import { openAiModel, parseJsonMode } from "./openai";
 import type { ChatModel } from "./types";
 import { workersAiModel } from "./workers-ai";
 
@@ -35,7 +35,12 @@ export function createModel(env: Env): ModelSelection {
     case "openai":
       if (!key) return unconfigured("MODEL_PROVIDER is openai but MODEL_API_KEY is not set.");
       return {
-        model: openAiModel(key, modelId, env.MODEL_BASE_URL?.trim() || undefined),
+        model: openAiModel(
+          key,
+          modelId,
+          env.MODEL_BASE_URL?.trim() || undefined,
+          parseJsonMode(env.MODEL_JSON_MODE),
+        ),
         configured: true,
       };
 
