@@ -506,6 +506,21 @@ body {
 .notice li { margin: 2px 0; }
 .notice.warn { border-left-color: var(--accent); }
 .notice.ok { border-left-color: var(--ok); color: var(--ok); }
+.notice.learned { border-left-color: var(--accent); }
+.notice.learned ul { list-style: none; padding-left: 0; }
+.notice.learned li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.notice.learned li span { flex: 1; }
+.act.inline {
+  padding: 1px 7px;
+  font-size: 11.5px;
+  border-color: var(--border);
+  color: var(--muted);
+}
 .notice.bad { border-left-color: var(--danger); color: var(--danger); }
 
 details.sources { font-size: 12.5px; }
@@ -792,6 +807,23 @@ code {
   background: var(--bg);
 }
 .list li span { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rule-text { cursor: text; border-radius: 4px; margin: -2px -4px; padding: 2px 4px; }
+.rule-text:hover { background: var(--surface-2); }
+.tag {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+input.rule-edit {
+  flex: 1;
+  font-size: 12.5px;
+  padding: 4px 7px;
+  border-color: var(--accent);
+}
 .list li.off span { opacity: 0.45; text-decoration: line-through; }
 .list li button { padding: 1px 7px; font-size: 12px; background: transparent; color: var(--muted); }
 .list li button:hover { color: var(--danger); opacity: 1; }

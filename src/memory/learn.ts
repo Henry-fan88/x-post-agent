@@ -8,9 +8,18 @@
  */
 
 import { type ChatModel, parseJson } from "../llm";
-import { AGENT_ROLE, LEARN_SCHEMA, learnPrompt } from "../agent/prompts";
+import { AGENT_ROLE, EXTRACT_SCHEMA, LEARN_SCHEMA, extractPrefsPrompt, learnPrompt } from "../agent/prompts";
 import type { Verdict } from "../types";
-import { addPreference, addSamples, getDraft, recordVerdict } from "./store";
+import {
+  addPreference,
+  addSamples,
+  getDraft,
+  getProfile,
+  listPreferences,
+  recordVerdict,
+  saveProfile,
+} from "./store";
+import type { StyleProfile } from "../types";
 
 export interface FeedbackInput {
   draftId: string;
@@ -90,4 +99,98 @@ function firstVariantText(variantsJson: string): string | null {
   } catch {
     return null;
   }
+}
+
+
+/* ------------------------ learning from the conversation ------------------ */
+
+/** Below this, a rule is treated as a guess about this post rather than a preference. */
+const DURABLE_CONFIDENCE = 0.7;
+
+export interface LearnedItem {
+  id: number;
+  rule: string;
+}
+
+export interface ConversationLearning {
+  rules: LearnedItem[];
+  /** Profile fields changed, as human-readable strings for the UI. */
+  profile: string[];
+}
+
+/**
+ * Read the user's instruction for standing preferences and record them.
+ *
+ * Deliberately conservative: only high-confidence durable rules are kept, and
+ * everything written here is `inferred` at low weight, listed in Settings, and
+ * undoable by id. A wrong guess should cost one click to reverse.
+ */
+export async function learnFromInstruction(
+  db: D1Database,
+  model: ChatModel,
+  instruction: string,
+): Promise<ConversationLearning> {
+  const empty: ConversationLearning = { rules: [], profile: [] };
+  if (instruction.trim().length < 8) return empty;
+
+  const existing = await listPreferences(db, { activeOnly: true });
+  let parsed: {
+    rules?: { rule?: string; durable?: boolean; confidence?: number }[];
+    profile?: Partial<StyleProfile> | null;
+  } | null = null;
+
+  try {
+    parsed = parseJson(
+      await model.complete(
+        [
+          { role: "system", content: AGENT_ROLE },
+          { role: "user", content: extractPrefsPrompt(instruction, existing.map((p) => p.rule)) },
+        ],
+        { task: "extract", jsonSchema: EXTRACT_SCHEMA as Record<string, unknown>, maxTokens: 800 },
+      ),
+    );
+  } catch {
+    return empty; // Learning is best-effort; never fail a turn over it.
+  }
+  if (!parsed) return empty;
+
+  const learned: LearnedItem[] = [];
+  const seen = new Set(existing.map((p) => p.rule.toLowerCase()));
+
+  for (const candidate of parsed.rules ?? []) {
+    const rule = candidate.rule?.trim();
+    if (!rule || rule.length < 5) continue;
+    if (candidate.durable !== true) continue;
+    if (typeof candidate.confidence !== "number" || candidate.confidence < DURABLE_CONFIDENCE) continue;
+    if (seen.has(rule.toLowerCase())) continue;
+
+    seen.add(rule.toLowerCase());
+    await addPreference(db, { rule, source: "inferred", weight: 0.75 });
+
+    const row = await db
+      .prepare("SELECT id FROM preferences WHERE lower(rule) = lower(?) ORDER BY id DESC LIMIT 1")
+      .bind(rule)
+      .first<{ id: number }>();
+    if (row) learned.push({ id: row.id, rule });
+  }
+
+  // Profile policies the user stated outright (emoji, hashtags, and so on).
+  const changed: string[] = [];
+  const patch = parsed.profile;
+  if (patch && typeof patch === "object") {
+    const current = (await getProfile(db)).profile;
+    const allowed: (keyof StyleProfile)[] = ["emoji", "hashtags", "capitalization", "max_chars"];
+    const update: Partial<StyleProfile> = {};
+
+    for (const key of allowed) {
+      const value = patch[key];
+      if (value === undefined || value === null) continue;
+      if (current[key] === value) continue;
+      (update as Record<string, unknown>)[key] = value;
+      changed.push(`${key.replace("_", " ")} → ${value}`);
+    }
+    if (changed.length) await saveProfile(db, { profile: update });
+  }
+
+  return { rules: learned, profile: changed };
 }

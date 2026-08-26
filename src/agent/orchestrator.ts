@@ -11,6 +11,7 @@
 
 import type { ResolvedConfig } from "../config/settings";
 import { type ChatModel, parseJson } from "../llm";
+import { learnFromInstruction } from "../memory/learn";
 import {
   getFormatStats,
   getProfile,
@@ -443,6 +444,19 @@ async function runRefine(opts: RunOptions, history: RefineTurn[]): Promise<Gener
   };
 
   await emit({ type: "result", result });
+
+  // Only refine turns are mined for preferences: the opening message is the
+  // idea itself, while follow-ups are where the user says how they want it
+  // written. Runs after the result so drafts are never held up by it.
+  try {
+    const learned = await learnFromInstruction(db, model, input);
+    if (learned.rules.length || learned.profile.length) {
+      await emit({ type: "learned", rules: learned.rules, profile: learned.profile });
+    }
+  } catch {
+    // Never let learning break a turn that already produced drafts.
+  }
+
   return result;
 }
 

@@ -368,3 +368,87 @@ Return only the JSON object.`;
 
 /** Available to the refine stage so it can name a format it switches to. */
 export { formatCatalogue };
+
+
+/* ---------------------------- 7. learn from talk -------------------------- */
+
+export const EXTRACT_SCHEMA = {
+  type: "object",
+  properties: {
+    rules: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          rule: { type: "string" },
+          durable: { type: "boolean" },
+          confidence: { type: "number" },
+        },
+        required: ["rule", "durable", "confidence"],
+        additionalProperties: false,
+      },
+    },
+    profile: {
+      type: ["object", "null"],
+      properties: {
+        emoji: { type: "string", enum: ["never", "sparingly", "freely"] },
+        hashtags: { type: "string", enum: ["never", "sparingly", "freely"] },
+        capitalization: { type: "string", enum: ["sentence", "lowercase", "title"] },
+        max_chars: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+  },
+  required: ["rules", "profile"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * Pull durable preferences out of what the user said while refining.
+ *
+ * The whole difficulty is telling a standing preference from a one-off note
+ * about this particular post. Getting it wrong fills their rule list with
+ * instructions that were never meant to outlive the draft, so the prompt errs
+ * toward one-off and the caller only keeps high-confidence durable results.
+ */
+export function extractPrefsPrompt(instruction: string, existingRules: string[]): string {
+  return `While working on a post, the user said this:
+
+<input>
+${instruction}
+</input>
+
+Decide whether it tells you something about how they want you to write **in
+general**, or whether it is a change to **this post only**.
+
+Durable — a standing preference:
+- "never use em dashes"
+- "stop opening with a question"
+- "you keep writing like a brand, cut that out"
+- "I don't want hashtags, ever"
+
+One-off — about this post:
+- "focus on the pricing angle"
+- "mention that it shipped Tuesday"
+- "make this one shorter"
+- "cut the second sentence"
+
+Default to one-off. Only call something durable when they generalise -- "always",
+"never", "from now on", "stop doing X", "you keep doing X" -- or state a
+preference about style rather than content. A request to change this post's
+subject, facts, or emphasis is never durable.
+
+${existingRules.length ? `They already have these rules. Do not restate them:\n${existingRules.map((r) => `- ${r}`).join("\n")}\n` : ""}
+Return JSON with:
+- rules: 0-2 objects, each { rule, durable, confidence }.
+  - rule: phrased as a short instruction to you, general enough to apply to future posts
+  - durable: true only if it should outlive this post
+  - confidence: 0 to 1, how sure you are it was meant as a standing preference
+- profile: null, or a patch when they clearly stated a global policy. Only these
+  keys, only when explicitly stated: emoji, hashtags, capitalization, max_chars.
+
+If it was a one-off, return an empty rules array and null profile. That is the
+common case and the right answer most of the time.
+
+Return only the JSON object.`;
+}

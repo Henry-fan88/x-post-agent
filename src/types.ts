@@ -106,4 +106,5 @@ export type AgentEvent =
   | { type: "sources"; sources: SourceDoc[] }
   | { type: "format"; format: string; label: string; rationale: string }
   | { type: "result"; result: GenerateResult }
+  | { type: "learned"; rules: { id: number; rule: string }[]; profile: string[] }
   | { type: "error"; message: string };

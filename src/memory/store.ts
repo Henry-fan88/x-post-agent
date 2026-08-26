@@ -281,6 +281,21 @@ export async function addPreference(
     .run();
 }
 
+/** Rewrites a rule in place, so a nearly-right inferred rule can be corrected. */
+export async function updatePreferenceRule(
+  db: D1Database,
+  id: number,
+  rule: string,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  const trimmed = rule.trim();
+  if (!trimmed) return;
+  await db
+    .prepare("UPDATE preferences SET rule = ?, source = 'user' WHERE id = ? AND user_id = ?")
+    .bind(trimmed, id, userId)
+    .run();
+}
+
 export async function setPreferenceActive(
   db: D1Database,
   id: number,

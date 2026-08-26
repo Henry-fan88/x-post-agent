@@ -12,6 +12,7 @@ import {
   listSamples,
   saveProfile,
   setPreferenceActive,
+  updatePreferenceRule,
 } from "../memory/store";
 import type { StyleProfile } from "../types";
 import { readJson } from "./util";
@@ -78,13 +79,23 @@ memoryRoutes.post("/preferences", async (c) => {
   return c.json({ preferences: await listPreferences(c.env.DB) });
 });
 
+/** Accepts either an active flag, new rule text, or both. */
 memoryRoutes.patch("/preferences/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const body = await readJson<{ active: boolean }>(c);
-  if (!Number.isInteger(id) || typeof body.active !== "boolean") {
-    return c.json({ error: "Bad id or missing active flag." }, 400);
+  const body = await readJson<{ active: boolean; rule: string }>(c);
+  if (!Number.isInteger(id)) return c.json({ error: "Bad id." }, 400);
+
+  const hasActive = typeof body.active === "boolean";
+  const hasRule = typeof body.rule === "string" && body.rule.trim().length > 0;
+  if (!hasActive && !hasRule) {
+    return c.json({ error: "Send an active flag, rule text, or both." }, 400);
   }
-  await setPreferenceActive(c.env.DB, id, body.active);
+
+  // Editing an inferred rule promotes it to a user rule -- the user has now
+  // reviewed it, so it should carry the same weight as one they typed.
+  if (hasRule) await updatePreferenceRule(c.env.DB, id, body.rule as string);
+  if (hasActive) await setPreferenceActive(c.env.DB, id, body.active as boolean);
+
   return c.json({ preferences: await listPreferences(c.env.DB) });
 });
 

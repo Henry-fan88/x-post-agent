@@ -95,6 +95,18 @@ export function mockModel(): ChatModel {
             warnings: ["Running on the mock provider -- no real model was called."],
           });
 
+        case "extract": {
+          // Mirrors the real heuristic closely enough to exercise the path:
+          // generalising language means durable, anything else is one-off.
+          const durable = /\b(never|always|from now on|stop|don'?t ever|you keep)\b/i.test(input);
+          return JSON.stringify({
+            rules: durable
+              ? [{ rule: `[mock] ${firstSentence(input, 80)}`, durable: true, confidence: 0.9 }]
+              : [],
+            profile: /\bno (emoji|emojis)\b/i.test(input) ? { emoji: "never" } : null,
+          });
+        }
+
         case "learn":
           return JSON.stringify({ rules: [] });
 

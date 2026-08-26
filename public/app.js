@@ -421,6 +421,49 @@ async function sendFeedback(bar, draftId, verdict, finalText) {
 
 /* -------------------------------- fragments -------------------------------- */
 
+/**
+ * What the agent decided to remember from this turn.
+ *
+ * Shown inline with an undo, because a wrong guess about a standing preference
+ * should cost one click to reverse rather than a trip to Settings.
+ */
+function learnedBlock(event) {
+  const box = document.createElement("div");
+  box.className = "notice learned";
+
+  const title = document.createElement("strong");
+  title.textContent = "Added to memory";
+  box.append(title);
+
+  const list = document.createElement("ul");
+
+  for (const item of event.rules) {
+    const li = document.createElement("li");
+
+    const text = document.createElement("span");
+    text.textContent = item.rule;
+
+    const undo = act("undo", async () => {
+      await api(`/api/memory/preferences/${item.id}`, { method: "DELETE" });
+      li.remove();
+      if (!list.children.length) box.remove();
+    });
+    undo.classList.add("inline");
+
+    li.append(text, undo);
+    list.append(li);
+  }
+
+  for (const change of event.profile) {
+    const li = document.createElement("li");
+    li.textContent = change;
+    list.append(li);
+  }
+
+  box.append(list);
+  return box;
+}
+
 function warningBlock(warnings) {
   const box = document.createElement("div");
   box.className = "notice warn";
@@ -613,6 +656,10 @@ function handleEvent(event, turn, trace) {
       markTraceDone(trace);
       trace.remove();
       turn.append(replyBlock(event.result));
+      scrollToEnd();
+      break;
+    case "learned":
+      turn.append(learnedBlock(event));
       scrollToEnd();
       break;
     case "error": {
@@ -1001,7 +1048,19 @@ function renderPreferences(preferences) {
     if (!p.active) li.className = "off";
 
     const span = document.createElement("span");
-    span.textContent = p.source === "inferred" ? `${p.rule}  (learned)` : p.rule;
+    span.className = "rule-text";
+    span.textContent = p.rule;
+    span.title = "Click to edit";
+
+    if (p.source === "inferred") {
+      const tag = document.createElement("em");
+      tag.className = "tag";
+      tag.textContent = "learned";
+      span.append(" ", tag);
+    }
+
+    // Click to edit in place; Enter saves, Escape cancels.
+    span.addEventListener("click", () => startRuleEdit(li, p, span));
 
     li.append(
       span,
@@ -1019,6 +1078,41 @@ function renderPreferences(preferences) {
     );
     list.append(li);
   }
+}
+
+function startRuleEdit(li, pref, span) {
+  if (li.querySelector("input.rule-edit")) return;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rule-edit";
+  input.value = pref.rule;
+
+  const finish = async (save) => {
+    const value = input.value.trim();
+    input.replaceWith(span);
+    if (!save || !value || value === pref.rule) return;
+    const { preferences } = await api(`/api/memory/preferences/${pref.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ rule: value }),
+    });
+    renderPreferences(preferences);
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+
+  span.replaceWith(input);
+  input.focus();
+  input.select();
 }
 
 $("pref-form").addEventListener("submit", async (e) => {

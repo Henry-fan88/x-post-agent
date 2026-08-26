@@ -30,9 +30,19 @@ hot take, thread, build log, teardown, reaction, and so on — each with a note 
 when it fits. The agent picks one per post, and formats used recently are
 penalised so drafts stay varied. Formats you actually post get rewarded.
 
-**It learns from edits.** When you tell it you edited a draft before posting, it
+**It learns two ways.** When you tell it you edited a draft before posting, it
 diffs its version against yours, names the style rule behind the change, and
-stores it. Your edited text also becomes a new writing sample.
+stores it — your edited text also becomes a new writing sample. And it reads the
+conversation itself: say *"stop opening with a question"* while refining and that
+becomes a standing rule.
+
+The hard part there is telling a standing preference from a one-off note about
+the post in front of you. *"Never use em dashes"* should outlive the draft;
+*"focus on the pricing angle"* should not. The extractor defaults to one-off,
+keeps only high-confidence generalisations, writes them at low weight marked
+`learned`, and shows each one inline with an undo. Everything it records is
+listed in **Settings → Rules**, where rules can be edited in place, muted, or
+deleted — editing one promotes it to a rule you own.
 
 **It never posts for you.** "Open in X" launches X's compose window prefilled;
 you review and hit post. There's no write path to X anywhere in the code.
@@ -158,7 +168,8 @@ db/seed.sql           Optional starter memory
 | `PATCH`/`DELETE` | `/api/sessions/:id` | Rename or delete a session |
 | `GET`/`PUT` | `/api/memory/profile` | Your voice |
 | `GET`/`POST`/`DELETE` | `/api/memory/samples` | Writing samples |
-| `GET`/`POST`/`PATCH`/`DELETE` | `/api/memory/preferences` | Rules |
+| `GET`/`POST`/`DELETE` | `/api/memory/preferences` | Rules |
+| `PATCH` | `/api/memory/preferences/:id` | Edit rule text, mute/unmute, or both |
 | `GET` | `/api/memory/stats` | Per-format usage and acceptance |
 | `GET`/`PUT` | `/api/settings` | Provider, model, base URL, JSON mode |
 | `PUT`/`DELETE` | `/api/settings/secrets/:name` | Store or remove an encrypted key. Never returns plaintext |
