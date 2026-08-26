@@ -1,0 +1,26 @@
+{
+  "name": "x-post-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An agent that turns an idea or a link into an X post written in your voice.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types",
+    "db:create": "wrangler d1 create x-post-agent-db",
+    "db:migrate:local": "wrangler d1 migrations apply x-post-agent-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply x-post-agent-db --remote",
+    "db:seed:local": "wrangler d1 execute x-post-agent-db --local --file=./db/seed.sql",
+    "tail": "wrangler tail",
+    "db:seed:remote": "wrangler d1 execute x-post-agent-db --remote --file=./db/seed.sql"
+  },
+  "dependencies": {
+    "hono": "^4.13.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.126.0"
+  }
+}

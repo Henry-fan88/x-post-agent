@@ -1,0 +1,341 @@
+/* Light and dark are both first-class: the page follows the OS. */
+:root {
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --surface-2: #f4f2ee;
+  --border: #e3dfd7;
+  --text: #1b1a17;
+  --muted: #6d6a62;
+  --accent: #1c1b19;
+  --accent-text: #ffffff;
+  --danger: #b4341f;
+  --ok: #2f6f4e;
+  --radius: 12px;
+  --font: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131211;
+    --surface: #1c1b19;
+    --surface-2: #232220;
+    --border: #33312d;
+    --text: #f0eee9;
+    --muted: #9b968c;
+    --accent: #f0eee9;
+    --accent-text: #131211;
+    --danger: #e88b78;
+    --ok: #7fc09b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Author `display` rules beat the UA stylesheet's [hidden] rule, and several
+   blocks below use display:flex -- without this they'd ignore `hidden`. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ------------------------------- top bar -------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+}
+
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -0.01em; }
+.brand .mark { color: var(--muted); }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.chip {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.chip.warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+
+/* -------------------------------- layout -------------------------------- */
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 20px 120px;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  max-width: 44ch;
+  margin: 48px auto 0;
+  font-size: 14px;
+}
+
+/* ------------------------------- composer ------------------------------- */
+
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 6px 6px 14px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  transition: border-color 0.15s;
+}
+.composer:focus-within { border-color: color-mix(in srgb, var(--text) 35%, var(--border)); }
+
+.composer textarea {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  padding: 10px 0 4px;
+  min-height: 72px;
+  max-height: 340px;
+}
+
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 4px 0;
+}
+
+.hint { font-size: 12px; color: var(--muted); }
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin-right: 2px;
+}
+
+/* -------------------------------- buttons ------------------------------- */
+
+button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+button:hover { opacity: 0.85; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button.ghost, .actions button {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+button.ghost:hover, .actions button:hover { background: var(--surface-2); opacity: 1; }
+button.on { background: var(--surface-2); border-color: var(--muted); }
+
+/* --------------------------------- trace -------------------------------- */
+
+.trace { margin-top: 20px; display: flex; flex-direction: column; gap: 2px; }
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 3px 2px;
+  animation: fade 0.25s ease-out;
+}
+.step .dot { color: var(--muted); font-size: 10px; }
+.step.active { color: var(--text); }
+.step .detail {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+
+@keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+
+/* -------------------------------- result -------------------------------- */
+
+.result { margin-top: 28px; display: flex; flex-direction: column; gap: 16px; }
+
+.format-bar { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.format-badge {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.format-why { font-size: 13px; color: var(--muted); flex: 1 1 20ch; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.card-angle { font-size: 12px; color: var(--muted); }
+.card-n { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; }
+
+.part { padding: 14px; border-bottom: 1px dashed var(--border); }
+.part:last-of-type { border-bottom: 0; }
+.part-text { white-space: pre-wrap; word-wrap: break-word; font-size: 15px; }
+.part-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.part-meta.over { color: var(--danger); font-weight: 600; }
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.actions .spacer { flex: 1; }
+
+.edit-box { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.edit-box textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  padding: 10px;
+  resize: vertical;
+}
+
+.notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  background: var(--surface);
+}
+.notice ul { margin: 6px 0 0; padding-left: 18px; }
+.notice.ok { border-left-color: var(--ok); }
+
+details.sources { font-size: 13px; }
+details.sources summary { cursor: pointer; color: var(--muted); }
+details.sources ul { margin: 8px 0 0; padding-left: 18px; }
+details.sources a { color: inherit; }
+
+/* --------------------------------- panel -------------------------------- */
+
+.panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(480px, 100%);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h2 { margin: 0; font-size: 16px; }
+.panel-body { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 28px; }
+.panel-body section { display: flex; flex-direction: column; gap: 8px; }
+.panel-body h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.panel-body label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.panel-body .row { display: flex; gap: 8px; align-items: flex-end; }
+.panel-body .row > * { flex: 1; }
+.panel-body .row button { flex: 0 0 auto; }
+
+input[type="text"], input[type="number"], select, .panel-body textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.muted { color: var(--muted); font-size: 12px; margin: 0; }
+.saved { font-size: 12px; color: var(--ok); }
+
+.list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.list li span { flex: 1; white-space: pre-wrap; word-wrap: break-word; }
+.list li.off span { opacity: 0.45; text-decoration: line-through; }
+.list li button { padding: 2px 8px; font-size: 12px; }
+
+.scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 35%); z-index: 15; }
+
+@media (max-width: 600px) {
+  main { padding: 24px 14px 100px; }
+  /* Without this the spacer pushes the feedback buttons onto their own row. */
+  .actions .spacer { display: none; }
+  .panel { width: 100%; }
+  .panel-body .row { flex-wrap: wrap; }
+}

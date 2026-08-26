@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "x-post-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // No Node built-ins needed -- add "nodejs_compat" here if that changes.
+
+  // The single-page UI lives in public/. The Worker runs first for /api/*,
+  // everything else is served straight from the asset store.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Agent memory: style profile, writing samples, learned preferences, draft history.
+  // Create with `npm run db:create`, then paste the returned id into database_id below.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "x-post-agent-db",
+      "database_id": "PLACEHOLDER_RUN_npm_run_db_create",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Non-secret configuration. Secrets (MODEL_API_KEY, SEARCH_API_KEY,
+  // X_BEARER_TOKEN, APP_PASSWORD) are set with `wrangler secret put` in prod
+  // and in .dev.vars locally -- never here.
+  "vars": {
+    // "mock" runs the whole pipeline with no API key so you can click around today.
+    // Switch to: "anthropic" | "openai" | "workers-ai"
+    "MODEL_PROVIDER": "mock",
+    "MODEL_ID": "",
+    // Only needed for OpenAI-compatible gateways (OpenRouter, Groq, DeepSeek, vLLM, ...)
+    "MODEL_BASE_URL": "",
+    // "none" | "brave" | "tavily" | "exa"
+    "SEARCH_PROVIDER": "none",
+    // Default X character budget. 280 free, 25000 premium.
+    "MAX_POST_CHARS": "280"
+  }
+
+  // Uncomment once you pick Workers AI as the provider -- no external key needed.
+  // "ai": { "binding": "AI" }
+}

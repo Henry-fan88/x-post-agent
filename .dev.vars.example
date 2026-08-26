@@ -1,0 +1,22 @@
+# Copy to `.dev.vars` for local dev. In production these are secrets:
+#   npx wrangler secret put MODEL_API_KEY
+#
+# .dev.vars is gitignored. Never commit real keys.
+
+# ---- Model provider -------------------------------------------------------
+# Leave MODEL_PROVIDER as "mock" (set in wrangler.jsonc) until you pick one.
+# Then set MODEL_PROVIDER in wrangler.jsonc and the key here.
+MODEL_API_KEY=""
+
+# ---- Web search (optional) ------------------------------------------------
+# Set SEARCH_PROVIDER in wrangler.jsonc to brave | tavily | exa, then:
+SEARCH_API_KEY=""
+
+# ---- X / Twitter (optional) -----------------------------------------------
+# Without this the agent still reads public posts via oEmbed, just with less
+# metadata (no author stats, no thread context).
+X_BEARER_TOKEN=""
+
+# ---- Access control (optional but recommended once deployed) --------------
+# If set, the UI asks for this passphrase before it will talk to the API.
+APP_PASSWORD=""
