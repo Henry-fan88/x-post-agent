@@ -6,6 +6,7 @@
  * no key configured still serves a working UI instead of a 500.
  */
 
+import type { ResolvedConfig } from "../config/settings";
 import { anthropicModel } from "./anthropic";
 import { mockModel } from "./mock";
 import { openAiModel, parseJsonMode } from "./openai";
@@ -22,39 +23,39 @@ export interface ModelSelection {
   note?: string;
 }
 
-export function createModel(env: Env): ModelSelection {
-  const provider = (env.MODEL_PROVIDER || "mock").toLowerCase();
-  const key = env.MODEL_API_KEY?.trim();
-  const modelId = env.MODEL_ID?.trim() || undefined;
+export function createModel(cfg: ResolvedConfig): ModelSelection {
+  const provider = cfg.modelProvider;
+  const key = cfg.modelApiKey.trim();
+  const modelId = cfg.modelId.trim() || undefined;
 
   switch (provider) {
     case "anthropic":
-      if (!key) return unconfigured("MODEL_PROVIDER is anthropic but MODEL_API_KEY is not set.");
+      if (!key) return unconfigured("Provider is anthropic but no API key is set.");
       return { model: anthropicModel(key, modelId), configured: true };
 
     case "openai":
-      if (!key) return unconfigured("MODEL_PROVIDER is openai but MODEL_API_KEY is not set.");
+      if (!key) return unconfigured("Provider is openai-compatible but no API key is set.");
       return {
         model: openAiModel(
           key,
           modelId,
-          env.MODEL_BASE_URL?.trim() || undefined,
-          parseJsonMode(env.MODEL_JSON_MODE),
+          cfg.modelBaseUrl.trim() || undefined,
+          parseJsonMode(cfg.modelJsonMode),
         ),
         configured: true,
       };
 
     case "workers-ai":
-      if (!env.AI) {
-        return unconfigured('MODEL_PROVIDER is workers-ai but the "ai" binding is not enabled in wrangler.jsonc.');
+      if (!cfg.ai) {
+        return unconfigured('Provider is workers-ai but the "ai" binding is not enabled in wrangler.jsonc.');
       }
-      return { model: workersAiModel(env.AI, modelId), configured: true };
+      return { model: workersAiModel(cfg.ai, modelId), configured: true };
 
     case "mock":
       return { model: mockModel(), configured: false, note: "Using the built-in mock provider." };
 
     default:
-      return unconfigured(`Unknown MODEL_PROVIDER "${provider}".`);
+      return unconfigured(`Unknown provider "${provider}".`);
   }
 }
 

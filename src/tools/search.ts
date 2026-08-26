@@ -6,6 +6,7 @@
  * the user already knows more about than the web does.
  */
 
+import type { ResolvedConfig } from "../config/settings";
 import type { SourceDoc } from "../types";
 
 const TIMEOUT_MS = 8000;
@@ -16,9 +17,9 @@ export interface SearchProvider {
   search(query: string, limit: number): Promise<SourceDoc[]>;
 }
 
-export function createSearchProvider(env: Env): SearchProvider | null {
-  const provider = (env.SEARCH_PROVIDER || "none").toLowerCase();
-  const key = env.SEARCH_API_KEY?.trim();
+export function createSearchProvider(cfg: ResolvedConfig): SearchProvider | null {
+  const provider = cfg.searchProvider;
+  const key = cfg.searchApiKey.trim();
   if (provider === "none" || !provider) return null;
   if (!key) return null;
 

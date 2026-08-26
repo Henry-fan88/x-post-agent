@@ -443,7 +443,18 @@ document.addEventListener("keydown", (e) => {
 async function openMemory() {
   els.panel.hidden = false;
   els.scrim.hidden = false;
-  await Promise.all([loadProfile(), loadSamples(), loadPreferences()]);
+  await Promise.all([loadSettings(), loadProfile(), loadSamples(), loadPreferences()]);
+}
+
+/* ---------------------------------- tabs --------------------------------- */
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.addEventListener("click", () => {
+    for (const t of document.querySelectorAll(".tab")) t.classList.toggle("on", t === tab);
+    for (const p of document.querySelectorAll(".tabpanel")) {
+      p.hidden = p.dataset.panel !== tab.dataset.tab;
+    }
+  });
 }
 
 function closeMemory() {
@@ -564,3 +575,200 @@ $("pref-form").addEventListener("submit", async (e) => {
 });
 
 loadConfig();
+
+
+/* ------------------------------- providers -------------------------------- */
+
+let providers = [];
+let modelListLoaded = false;
+
+function setNote(el, text, kind) {
+  el.textContent = text || "";
+  el.hidden = !text;
+  el.className = `muted${kind ? ` ${kind}` : ""}`;
+}
+
+/** Show only the fields the selected provider actually uses. */
+function applyProviderUi(id) {
+  const provider = providers.find((p) => p.id === id);
+  if (!provider) return;
+
+  setNote($("s-provider-note"), provider.note);
+  $("s-baseurl-row").hidden = !provider.needsBaseUrl;
+  $("s-jsonmode-row").hidden = id !== "openai";
+  $("s-key-section").hidden = !provider.needsKey;
+
+  if (provider.exampleModel) $("s-model").placeholder = provider.exampleModel;
+  if (provider.exampleBaseUrl) $("s-baseurl").placeholder = provider.exampleBaseUrl;
+}
+
+/** Describes where a key comes from without ever showing the key. */
+function keyStateText(secret, label) {
+  switch (secret.source) {
+    case "env":
+      return `${label} is set as a Cloudflare secret. That wins over anything saved here.`;
+    case "stored":
+      return `${label} saved here (${secret.hint}), encrypted.`;
+    default:
+      return `No ${label} set.`;
+  }
+}
+
+async function loadSettings() {
+  const data = await api("/api/settings");
+  providers = data.providers;
+
+  const select = $("s-provider");
+  select.replaceChildren();
+  for (const p of providers) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.label;
+    select.append(opt);
+  }
+
+  select.value = data.settings.MODEL_PROVIDER;
+  $("s-model").value = data.settings.MODEL_ID;
+  $("s-baseurl").value = data.settings.MODEL_BASE_URL;
+  $("s-jsonmode").value = data.settings.MODEL_JSON_MODE;
+  $("s-search").value = data.settings.SEARCH_PROVIDER;
+  applyProviderUi(select.value);
+
+  const model = data.model;
+  setNote(
+    $("s-result"),
+    model.configured ? `Live: ${model.name}` : model.note || "Not configured.",
+    model.configured ? "ok" : "bad",
+  );
+
+  $("s-key-state").textContent = keyStateText(data.secrets.MODEL_API_KEY, "Model API key");
+  $("s-search-state").textContent = keyStateText(data.secrets.SEARCH_API_KEY, "Search key");
+  $("s-x-state").textContent = keyStateText(data.secrets.X_BEARER_TOKEN, "X bearer token");
+
+  // Without a passphrase there is no encryption key, so saving is refused.
+  const canStore = data.canStoreSecrets;
+  for (const id of ["s-key", "s-key-save", "s-searchkey", "s-search-save", "s-xtoken", "s-x-save"]) {
+    $(id).disabled = !canStore;
+  }
+  if (!canStore) {
+    $("s-key-state").textContent =
+      "Set APP_PASSWORD (npx wrangler secret put APP_PASSWORD) before saving keys here — it is the encryption key.";
+  }
+  if (data.undecryptable?.length) {
+    setNote(
+      $("s-result"),
+      `Stored ${data.undecryptable.join(", ")} can no longer be decrypted — the passphrase changed. Re-enter it below.`,
+      "bad",
+    );
+  }
+
+  if (!modelListLoaded) loadModelList();
+}
+
+/** Populates the datalist so the model field offers real ids instead of guesswork. */
+async function loadModelList() {
+  modelListLoaded = true;
+  try {
+    const { models } = await api("/api/settings/models");
+    const list = $("s-model-list");
+    list.replaceChildren();
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.label = m.schema ? m.name : `${m.name} (no structured output)`;
+      list.append(opt);
+    }
+    if (models.length) {
+      setNote($("s-model-note"), `${models.length} models available — start typing to filter.`);
+    }
+  } catch {
+    // A missing catalogue just means typing the id by hand; not worth surfacing.
+  }
+}
+
+$("s-provider").addEventListener("change", (e) => applyProviderUi(e.target.value));
+
+$("s-save").addEventListener("click", async () => {
+  setNote($("s-result"), "Saving…");
+  try {
+    const res = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        MODEL_PROVIDER: $("s-provider").value,
+        MODEL_ID: $("s-model").value.trim(),
+        MODEL_BASE_URL: $("s-baseurl").value.trim(),
+        MODEL_JSON_MODE: $("s-jsonmode").value,
+      }),
+    });
+    setNote(
+      $("s-result"),
+      res.model.configured ? `Saved. Live: ${res.model.name}` : `Saved, but ${res.model.note}`,
+      res.model.configured ? "ok" : "bad",
+    );
+    modelListLoaded = false;
+    await loadSettings();
+    await loadConfig();
+  } catch (err) {
+    setNote($("s-result"), err.message, "bad");
+  }
+});
+
+$("s-test").addEventListener("click", async () => {
+  setNote($("s-result"), "Testing…");
+  try {
+    const res = await api("/api/settings/test", { method: "POST" });
+    setNote(
+      $("s-result"),
+      res.ok ? `${res.model} replied in ${res.ms}ms.` : `Failed: ${res.error}`,
+      res.ok ? "ok" : "bad",
+    );
+  } catch (err) {
+    setNote($("s-result"), err.message, "bad");
+  }
+});
+
+/** Saves a key and clears the field, so it never lingers in the DOM. */
+async function saveSecret(name, inputId, stateId, label) {
+  const input = $(inputId);
+  const value = input.value.trim();
+  if (!value) return;
+  try {
+    const res = await api(`/api/settings/secrets/${name}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    });
+    input.value = "";
+    await loadSettings();
+    await loadConfig();
+    if (res.shadowedByEnv) {
+      $(stateId).textContent =
+        `Saved, but a Cloudflare secret for ${label} already exists and takes precedence.`;
+    }
+  } catch (err) {
+    setNote($("s-result"), err.message, "bad");
+  }
+}
+
+$("s-key-save").addEventListener("click", () =>
+  saveSecret("MODEL_API_KEY", "s-key", "s-key-state", "the model API key"),
+);
+
+$("s-key-clear").addEventListener("click", async () => {
+  await api("/api/settings/secrets/MODEL_API_KEY", { method: "DELETE" });
+  await loadSettings();
+  await loadConfig();
+});
+
+$("s-search-save").addEventListener("click", async () => {
+  await api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify({ SEARCH_PROVIDER: $("s-search").value }),
+  });
+  await saveSecret("SEARCH_API_KEY", "s-searchkey", "s-search-state", "the search key");
+  await loadSettings();
+  await loadConfig();
+});
+
+$("s-x-save").addEventListener("click", () =>
+  saveSecret("X_BEARER_TOKEN", "s-xtoken", "s-x-state", "the X bearer token"),
+);

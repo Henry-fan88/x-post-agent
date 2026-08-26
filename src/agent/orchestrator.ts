@@ -9,6 +9,7 @@
  * research, critique) degrade to a warning instead of an error.
  */
 
+import type { ResolvedConfig } from "../config/settings";
 import { type ChatModel, parseJson } from "../llm";
 import {
   getFormatStats,
@@ -53,14 +54,14 @@ export function countChars(text: string): number {
 }
 
 export async function runAgent(opts: {
-  env: Env;
+  cfg: ResolvedConfig;
   db: D1Database;
   model: ChatModel;
   search: SearchProvider | null;
   input: string;
   emit: Emit;
 }): Promise<GenerateResult> {
-  const { env, db, model, search, input, emit } = opts;
+  const { cfg, db, model, search, input, emit } = opts;
   const warnings: string[] = [];
 
   const ask = async (task: string, prompt: string, schema: object) =>
@@ -122,7 +123,7 @@ export async function runAgent(opts: {
       understanding.urls.slice(0, MAX_LINKS).map(async (url) => {
         const xRef = parseXUrl(url);
         return xRef
-          ? await readXPost(xRef, env.X_BEARER_TOKEN)
+          ? await readXPost(xRef, cfg.xBearerToken || undefined)
           : await fetchUrlAsText(url);
       }),
     );
@@ -171,7 +172,7 @@ export async function runAgent(opts: {
     getFormatStats(db),
   ]);
   const profile = profileRecord.profile;
-  const maxChars = clampMaxChars(env, profile.max_chars);
+  const maxChars = clampMaxChars(cfg, profile.max_chars);
 
   /* ---------------------------- choose format ---------------------------- */
 
@@ -322,11 +323,10 @@ function toVariants(raw: unknown): Variant[] {
   return out;
 }
 
-/** The style profile wins; MAX_POST_CHARS is only the default for a fresh profile. */
-function clampMaxChars(env: Env, profileValue: number): number {
+/** The style profile wins; the configured value is only the default for a fresh profile. */
+function clampMaxChars(cfg: ResolvedConfig, profileValue: number): number {
   if (profileValue > 0) return profileValue;
-  const envValue = Number(env.MAX_POST_CHARS);
-  return Number.isFinite(envValue) && envValue > 0 ? envValue : 280;
+  return cfg.maxPostChars > 0 ? cfg.maxPostChars : 280;
 }
 
 function errText(err: unknown): string {

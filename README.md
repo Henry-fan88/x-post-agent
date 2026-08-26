@@ -53,22 +53,45 @@ posts.
 
 ## Picking a model provider
 
-Set `MODEL_PROVIDER` in `wrangler.jsonc`, then supply the key.
+**From the UI:** open **Settings → Model**. Provider, model, base URL, and JSON
+mode are all editable there and take effect immediately — no redeploy. On
+OpenRouter the model field autocompletes from their live catalogue, flagging
+which models support structured outputs. **Test connection** round-trips the
+configured model so a bad key or model id surfaces there rather than mid-draft.
 
-| `MODEL_PROVIDER` | Key | Notes |
+**From config:** the `vars` in `wrangler.jsonc` are the defaults. Anything set in
+the UI overrides them.
+
+| Provider | Key | Notes |
 |---|---|---|
-| `mock` | none | Default. Runs everything, writes fake prose. |
-| `anthropic` | `MODEL_API_KEY` | Set `MODEL_ID` to e.g. `claude-opus-5`. |
-| `openai` | `MODEL_API_KEY` | Also covers OpenRouter, Groq, DeepSeek, vLLM — point `MODEL_BASE_URL` at them. |
+| `mock` | none | Runs everything, writes fake prose. Useful for testing. |
+| `anthropic` | `MODEL_API_KEY` | Set the model to e.g. `claude-opus-5`. |
+| `openai` | `MODEL_API_KEY` | Also covers OpenRouter, Groq, DeepSeek, vLLM — point the base URL at them. |
 | `workers-ai` | none | Uncomment the `ai` binding in `wrangler.jsonc`. Runs on Cloudflare. |
 
+Adding a provider is one file in [`src/llm/`](src/llm/), a case in
+[`createModel`](src/llm/index.ts), and an entry in the `PROVIDERS` list in
+[`src/routes/settings.ts`](src/routes/settings.ts).
+
+### Where API keys live
+
+Two options, and the more secure one wins:
+
 ```bash
-cp .dev.vars.example .dev.vars      # local
-npx wrangler secret put MODEL_API_KEY   # production
+npx wrangler secret put MODEL_API_KEY    # encrypted by Cloudflare, never readable back
 ```
 
-Adding a provider is one file in [`src/llm/`](src/llm/) plus a case in
-[`createModel`](src/llm/index.ts).
+or paste the key into **Settings → Model → API key**. Keys entered that way are
+stored in D1 **encrypted with AES-GCM**, under a key derived from `APP_PASSWORD`
+via PBKDF2 — a database dump alone won't yield them. The API never returns
+plaintext; the UI only ever sees the last four characters.
+
+`wrangler secret put` remains the stronger option and **takes precedence** over
+anything stored through the UI. The UI path exists so you can rotate a key or
+switch providers from a phone; it is a convenience, not a replacement. It is
+refused entirely unless `APP_PASSWORD` is set, since that passphrase *is* the
+encryption key — which also means rotating `APP_PASSWORD` invalidates stored
+keys, and the UI will tell you to re-enter them.
 
 ## Optional extras
 
@@ -106,6 +129,9 @@ src/
     orchestrator.ts   The pipeline, and the events it streams to the UI
     formats.ts        13 post formats + the anti-repetition logic
     prompts.ts        Stage prompts and their JSON schemas
+  config/
+    settings.ts       Runtime config: wrangler vars as defaults, D1 as override
+    crypto.ts         AES-GCM + PBKDF2 for API keys stored in D1
   llm/                Provider adapters behind one ChatModel interface
   memory/
     store.ts          D1 reads and writes
@@ -132,6 +158,10 @@ db/seed.sql           Optional starter memory
 | `GET`/`POST`/`DELETE` | `/api/memory/samples` | Writing samples |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/api/memory/preferences` | Rules |
 | `GET` | `/api/memory/stats` | Per-format usage and acceptance |
+| `GET`/`PUT` | `/api/settings` | Provider, model, base URL, JSON mode |
+| `PUT`/`DELETE` | `/api/settings/secrets/:name` | Store or remove an encrypted key. Never returns plaintext |
+| `POST` | `/api/settings/test` | Round-trip the configured model |
+| `GET` | `/api/settings/models` | Model catalogue for the current provider |
 
 `verdict` is `posted`, `edited`, or `rejected`. Sending `edited` with the text
 you actually posted is the single highest-value thing you can do — it's how the

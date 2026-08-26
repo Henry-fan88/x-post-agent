@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { runAgent } from "../agent/orchestrator";
+import { resolveConfig } from "../config/settings";
 import { createModel } from "../llm";
 import { applyFeedback } from "../memory/learn";
 import { listDrafts } from "../memory/store";
@@ -28,8 +29,9 @@ agentRoutes.post("/generate", async (c) => {
     return c.json({ error: `Input is too long (max ${MAX_INPUT_CHARS} characters).` }, 400);
   }
 
-  const { model } = createModel(c.env);
-  const search = createSearchProvider(c.env);
+  const cfg = await resolveConfig(c.env, c.env.DB);
+  const { model } = createModel(cfg);
+  const search = createSearchProvider(cfg);
 
   return streamSSE(c, async (stream) => {
     const emit = async (event: AgentEvent) => {
@@ -37,7 +39,7 @@ agentRoutes.post("/generate", async (c) => {
     };
 
     try {
-      await runAgent({ env: c.env, db: c.env.DB, model, search, input, emit });
+      await runAgent({ cfg, db: c.env.DB, model, search, input, emit });
     } catch (err) {
       console.error("generate failed", err);
       await emit({
@@ -56,7 +58,7 @@ agentRoutes.post("/feedback", async (c) => {
     return c.json({ error: "draftId and a verdict of posted | edited | rejected are required." }, 400);
   }
 
-  const { model } = createModel(c.env);
+  const { model } = createModel(await resolveConfig(c.env, c.env.DB));
   const result = await applyFeedback(c.env.DB, model, {
     draftId: body.draftId,
     verdict: body.verdict as Verdict,

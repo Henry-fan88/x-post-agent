@@ -19,7 +19,7 @@
       </div>
       <div class="topbar-right">
         <span id="status-chip" class="chip" title="Model provider">checking…</span>
-        <button id="open-memory" class="ghost" type="button">Memory</button>
+        <button id="open-memory" class="ghost" type="button">Settings</button>
       </div>
     </header>
 
@@ -48,62 +48,157 @@
       </p>
     </main>
 
-    <!-- Memory drawer -->
+    <!-- Settings drawer -->
     <div id="memory-panel" class="panel" hidden>
       <div class="panel-head">
-        <h2>Memory</h2>
+        <h2>Settings</h2>
         <button id="close-memory" class="ghost" type="button">Close</button>
       </div>
 
+      <nav class="tabs" role="tablist">
+        <button class="tab on" data-tab="providers" role="tab" type="button">Model</button>
+        <button class="tab" data-tab="voice" role="tab" type="button">Voice</button>
+        <button class="tab" data-tab="posts" role="tab" type="button">Your posts</button>
+        <button class="tab" data-tab="rules" role="tab" type="button">Rules</button>
+      </nav>
+
       <div class="panel-body">
-        <section>
-          <h3>Voice</h3>
-          <label>Handle<input id="m-handle" type="text" placeholder="yourhandle" /></label>
-          <label>How you write<textarea id="m-voice" rows="3"></textarea></label>
-          <div class="row">
-            <label>Emoji
-              <select id="m-emoji">
-                <option value="never">never</option>
-                <option value="sparingly">sparingly</option>
-                <option value="freely">freely</option>
+        <!-- ---------------------------- Model ---------------------------- -->
+        <div class="tabpanel" data-panel="providers">
+          <section>
+            <h3>Model</h3>
+            <label>Provider
+              <select id="s-provider"></select>
+            </label>
+            <p id="s-provider-note" class="muted"></p>
+
+            <label id="s-baseurl-row">Base URL
+              <input id="s-baseurl" type="text" placeholder="https://openrouter.ai/api/v1" />
+            </label>
+
+            <label>Model
+              <input id="s-model" type="text" list="s-model-list" placeholder="provider/model-name" />
+            </label>
+            <datalist id="s-model-list"></datalist>
+            <p id="s-model-note" class="muted"></p>
+
+            <label id="s-jsonmode-row">JSON mode
+              <select id="s-jsonmode">
+                <option value="schema">schema — strict, best when supported</option>
+                <option value="object">object — looser JSON mode</option>
+                <option value="off">off — rely on the prompt</option>
               </select>
             </label>
-            <label>Hashtags
-              <select id="m-hashtags">
-                <option value="never">never</option>
-                <option value="sparingly">sparingly</option>
-                <option value="freely">freely</option>
+
+            <div class="row">
+              <button id="s-save" type="button">Save</button>
+              <button id="s-test" class="ghost" type="button">Test connection</button>
+            </div>
+            <p id="s-result" class="muted" hidden></p>
+          </section>
+
+          <section id="s-key-section">
+            <h3>API key</h3>
+            <p id="s-key-state" class="muted"></p>
+            <label>Set a new key
+              <input id="s-key" type="password" autocomplete="off" placeholder="paste key — stored encrypted" />
+            </label>
+            <div class="row">
+              <button id="s-key-save" type="button">Save key</button>
+              <button id="s-key-clear" class="ghost" type="button">Remove stored key</button>
+            </div>
+            <p class="muted">
+              Stored keys are encrypted with your passphrase and never sent back to the
+              browser. <code>wrangler secret put</code> is still more secure and takes
+              precedence over anything saved here.
+            </p>
+          </section>
+
+          <section>
+            <h3>Web search <span class="opt">optional</span></h3>
+            <label>Provider
+              <select id="s-search">
+                <option value="none">off</option>
+                <option value="brave">Brave</option>
+                <option value="tavily">Tavily</option>
+                <option value="exa">Exa</option>
               </select>
             </label>
-            <label>Max chars<input id="m-maxchars" type="number" min="1" max="25000" /></label>
-          </div>
-          <label>Audience<input id="m-audience" type="text" /></label>
-          <label>Always<textarea id="m-do" rows="3" placeholder="One per line"></textarea></label>
-          <label>Never<textarea id="m-dont" rows="3" placeholder="One per line"></textarea></label>
-          <button id="save-profile" type="button">Save voice</button>
-          <span id="profile-saved" class="saved" hidden>saved</span>
-        </section>
+            <p id="s-search-state" class="muted"></p>
+            <label>Search API key
+              <input id="s-searchkey" type="password" autocomplete="off" placeholder="leave blank to keep current" />
+            </label>
+            <button id="s-search-save" type="button">Save search settings</button>
+          </section>
 
-        <section>
-          <h3>Your posts</h3>
-          <p class="muted">
-            Paste a few posts you've actually written, separated by blank lines. This is
-            what the agent imitates.
-          </p>
-          <textarea id="m-samples" rows="6" placeholder="Paste posts here…"></textarea>
-          <button id="add-samples" type="button">Add posts</button>
-          <ul id="sample-list" class="list"></ul>
-        </section>
+          <section>
+            <h3>X API <span class="opt">optional</span></h3>
+            <p id="s-x-state" class="muted"></p>
+            <label>Bearer token
+              <input id="s-xtoken" type="password" autocomplete="off" placeholder="leave blank to keep current" />
+            </label>
+            <p class="muted">Without this, public posts are still read via oEmbed.</p>
+            <button id="s-x-save" type="button">Save token</button>
+          </section>
+        </div>
 
-        <section>
-          <h3>Rules</h3>
-          <p class="muted">Standing instructions. The agent follows these on every draft.</p>
-          <form id="pref-form" class="row">
-            <input id="m-pref" type="text" placeholder="e.g. never open with a question" />
-            <button type="submit">Add</button>
-          </form>
-          <ul id="pref-list" class="list"></ul>
-        </section>
+        <!-- ---------------------------- Voice ---------------------------- -->
+        <div class="tabpanel" data-panel="voice" hidden>
+          <section>
+            <h3>Voice</h3>
+            <label>Handle<input id="m-handle" type="text" placeholder="yourhandle" /></label>
+            <label>How you write<textarea id="m-voice" rows="3"></textarea></label>
+            <div class="row">
+              <label>Emoji
+                <select id="m-emoji">
+                  <option value="never">never</option>
+                  <option value="sparingly">sparingly</option>
+                  <option value="freely">freely</option>
+                </select>
+              </label>
+              <label>Hashtags
+                <select id="m-hashtags">
+                  <option value="never">never</option>
+                  <option value="sparingly">sparingly</option>
+                  <option value="freely">freely</option>
+                </select>
+              </label>
+              <label>Max chars<input id="m-maxchars" type="number" min="1" max="25000" /></label>
+            </div>
+            <label>Audience<input id="m-audience" type="text" /></label>
+            <label>Always<textarea id="m-do" rows="3" placeholder="One per line"></textarea></label>
+            <label>Never<textarea id="m-dont" rows="3" placeholder="One per line"></textarea></label>
+            <button id="save-profile" type="button">Save voice</button>
+            <span id="profile-saved" class="saved" hidden>saved</span>
+          </section>
+        </div>
+
+        <!-- ---------------------------- Posts ---------------------------- -->
+        <div class="tabpanel" data-panel="posts" hidden>
+          <section>
+            <h3>Your posts</h3>
+            <p class="muted">
+              Paste a few posts you've actually written, separated by blank lines. This is
+              what the agent imitates.
+            </p>
+            <textarea id="m-samples" rows="6" placeholder="Paste posts here…"></textarea>
+            <button id="add-samples" type="button">Add posts</button>
+            <ul id="sample-list" class="list"></ul>
+          </section>
+        </div>
+
+        <!-- ---------------------------- Rules ---------------------------- -->
+        <div class="tabpanel" data-panel="rules" hidden>
+          <section>
+            <h3>Rules</h3>
+            <p class="muted">Standing instructions. The agent follows these on every draft.</p>
+            <form id="pref-form" class="row">
+              <input id="m-pref" type="text" placeholder="e.g. never open with a question" />
+              <button type="submit">Add</button>
+            </form>
+            <ul id="pref-list" class="list"></ul>
+          </section>
+        </div>
       </div>
     </div>
     <div id="scrim" class="scrim" hidden></div>

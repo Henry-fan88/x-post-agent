@@ -7,9 +7,11 @@
 
 import { Hono } from "hono";
 import { formatSummaries } from "./agent/orchestrator";
+import { resolveConfig } from "./config/settings";
 import { createModel } from "./llm";
 import { agentRoutes } from "./routes/agent";
 import { memoryRoutes } from "./routes/memory";
+import { settingsRoutes } from "./routes/settings";
 import { createSearchProvider } from "./tools/search";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -31,22 +33,24 @@ app.use("/api/*", async (c, next) => {
   return await next();
 });
 
-app.get("/api/config", (c) => {
-  const { model, configured, note } = createModel(c.env);
-  const search = createSearchProvider(c.env);
+app.get("/api/config", async (c) => {
+  const cfg = await resolveConfig(c.env, c.env.DB);
+  const { model, configured, note } = createModel(cfg);
+  const search = createSearchProvider(cfg);
 
   return c.json({
     model: { name: model.name, configured, note },
     search: { provider: search?.name ?? "none", configured: Boolean(search) },
-    xApi: { configured: Boolean(c.env.X_BEARER_TOKEN?.trim()) },
+    xApi: { configured: Boolean(cfg.xBearerToken) },
     authRequired: Boolean(c.env.APP_PASSWORD?.trim()),
-    maxPostChars: Number(c.env.MAX_POST_CHARS) || 280,
+    maxPostChars: cfg.maxPostChars,
     formats: formatSummaries(),
   });
 });
 
 app.route("/api", agentRoutes);
 app.route("/api/memory", memoryRoutes);
+app.route("/api/settings", settingsRoutes);
 
 app.notFound((c) =>
   c.req.path.startsWith("/api/") ? c.json({ error: "Not found." }, 404) : c.env.ASSETS.fetch(c.req.raw),

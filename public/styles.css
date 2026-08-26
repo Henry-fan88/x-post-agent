@@ -330,6 +330,54 @@ input[type="text"], input[type="number"], select, .panel-body textarea {
 .list li.off span { opacity: 0.45; text-decoration: line-through; }
 .list li button { padding: 2px 8px; font-size: 12px; }
 
+/* --------------------------------- tabs ---------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tabs .tab {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.tabs .tab:hover { color: var(--text); opacity: 1; }
+.tabs .tab.on { color: var(--text); border-bottom-color: var(--text); font-weight: 600; }
+
+.tabpanel { display: flex; flex-direction: column; gap: 28px; }
+
+.opt {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.muted.ok { color: var(--ok); }
+.muted.bad { color: var(--danger); }
+
 .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 35%); z-index: 15; }
 
 @media (max-width: 600px) {
