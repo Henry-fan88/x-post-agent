@@ -355,6 +355,7 @@ export async function recentFormats(
 
 export interface DraftRow {
   id: string;
+  session_id: string | null;
   input: string;
   input_kind: string;
   format: string;
@@ -371,6 +372,7 @@ export async function saveDraft(
   db: D1Database,
   d: {
     id: string;
+    sessionId: string;
     input: string;
     inputKind: string;
     format: string;
@@ -382,12 +384,13 @@ export async function saveDraft(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO drafts (id, user_id, input, input_kind, format, variants_json, context_json, rationale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO drafts (id, user_id, session_id, input, input_kind, format, variants_json, context_json, rationale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       d.id,
       userId,
+      d.sessionId,
       d.input,
       d.inputKind,
       d.format,
@@ -396,7 +399,7 @@ export async function saveDraft(
       d.rationale,
     )
     .run();
-  await recordFormatUse(db, d.format, userId);
+  await Promise.all([recordFormatUse(db, d.format, userId), touchSession(db, d.sessionId, userId)]);
 }
 
 export async function getDraft(
@@ -454,4 +457,141 @@ export async function recordVerdict(
     )
     .bind(userId, draft.format)
     .run();
+}
+
+
+/* -------------------------------- sessions ------------------------------- */
+
+export interface SessionRow {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionSummary extends SessionRow {
+  turns: number;
+  /** Format of the most recent turn, for the sidebar. */
+  lastFormat: string | null;
+}
+
+/**
+ * A session's title is the first thing the user said, trimmed. Cheap, stable,
+ * and recognisable in a list -- and renameable if it isn't.
+ */
+export function titleFromInput(input: string): string {
+  const flat = input.replace(/\s+/g, " ").trim();
+  const url = flat.match(/^https?:\/\/(?:www\.)?([^/\s]+)/);
+  if (url && flat.length < 120) return url[1];
+  return flat.length > 60 ? `${flat.slice(0, 60).trimEnd()}…` : flat || "Untitled";
+}
+
+export async function createSession(
+  db: D1Database,
+  input: { id: string; title: string },
+  userId = DEFAULT_USER,
+): Promise<SessionRow> {
+  await db
+    .prepare("INSERT INTO sessions (id, user_id, title) VALUES (?, ?, ?)")
+    .bind(input.id, userId, input.title)
+    .run();
+  const now = new Date().toISOString();
+  return { id: input.id, title: input.title, created_at: now, updated_at: now };
+}
+
+export async function touchSession(
+  db: D1Database,
+  sessionId: string,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db
+    .prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+    .bind(sessionId, userId)
+    .run();
+}
+
+export async function getSession(
+  db: D1Database,
+  id: string,
+  userId = DEFAULT_USER,
+): Promise<SessionRow | null> {
+  return await db
+    .prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .first<SessionRow>();
+}
+
+export async function listSessions(
+  db: D1Database,
+  limit = 100,
+  userId = DEFAULT_USER,
+): Promise<SessionSummary[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT s.id, s.title, s.created_at, s.updated_at,
+              COUNT(d.id) AS turns,
+              (SELECT format FROM drafts WHERE session_id = s.id ORDER BY created_at DESC LIMIT 1) AS lastFormat
+       FROM sessions s
+       LEFT JOIN drafts d ON d.session_id = s.id
+       WHERE s.user_id = ?
+       GROUP BY s.id
+       ORDER BY s.updated_at DESC
+       LIMIT ?`,
+    )
+    .bind(userId, limit)
+    .all<SessionSummary>();
+  return results ?? [];
+}
+
+export async function renameSession(
+  db: D1Database,
+  id: string,
+  title: string,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db
+    .prepare("UPDATE sessions SET title = ? WHERE id = ? AND user_id = ?")
+    .bind(title.trim().slice(0, 200) || "Untitled", id, userId)
+    .run();
+}
+
+/** Deletes the session and every turn in it. */
+export async function deleteSession(
+  db: D1Database,
+  id: string,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db.batch([
+    db.prepare("DELETE FROM drafts WHERE session_id = ? AND user_id = ?").bind(id, userId),
+    db.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, userId),
+  ]);
+}
+
+/** Every turn in a session, oldest first -- the conversation, in order. */
+export async function sessionTurns(
+  db: D1Database,
+  sessionId: string,
+  userId = DEFAULT_USER,
+): Promise<DraftRow[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT * FROM drafts WHERE session_id = ? AND user_id = ? ORDER BY created_at ASC",
+    )
+    .bind(sessionId, userId)
+    .all<DraftRow>();
+  return results ?? [];
+}
+
+/** The most recent turn, which is the context a follow-up refines. */
+export async function lastTurn(
+  db: D1Database,
+  sessionId: string,
+  userId = DEFAULT_USER,
+): Promise<DraftRow | null> {
+  return await db
+    .prepare(
+      "SELECT * FROM drafts WHERE session_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(sessionId, userId)
+    .first<DraftRow>();
 }

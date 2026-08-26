@@ -1,28 +1,46 @@
 /**
- * UI for the post agent.
+ * post agent — UI.
  *
- * No framework on purpose: the whole surface is one input, a progress trace,
- * and a couple of cards. Everything user-supplied goes in through textContent,
- * never innerHTML.
+ * No framework: an app shell, a session list, and a conversation thread. All
+ * user-supplied text goes in through textContent, never innerHTML.
  */
 
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  app: document.querySelector(".app"),
+  sidebar: $("sidebar"),
+  sessionList: $("session-list"),
+  thread: $("thread"),
+  welcome: $("welcome"),
+  starters: $("starters"),
+  title: $("session-title"),
   form: $("composer"),
   input: $("input"),
   send: $("send"),
-  trace: $("trace"),
-  result: $("result"),
-  empty: $("empty"),
+  note: $("composer-note"),
+  hint: $("composer-hint"),
   chip: $("status-chip"),
-  panel: $("memory-panel"),
+  panel: $("settings-panel"),
   scrim: $("scrim"),
+  rename: $("rename-session"),
+  del: $("delete-session"),
 };
 
-let config = { maxPostChars: 280, authRequired: false };
+const state = {
+  config: { maxPostChars: 280, handle: "" },
+  sessions: [],
+  currentId: null,
+  busy: false,
+};
+
 let passphrase = sessionStorage.getItem("x-post-agent-pass") || "";
-let inFlight = false;
+
+const STARTERS = [
+  "Ship a build log about what I fixed today",
+  "React to a link I paste",
+  "Turn a rough opinion into a hot take",
+];
 
 /* ------------------------------ networking ------------------------------- */
 
@@ -32,15 +50,18 @@ function headers(extra = {}) {
   return h;
 }
 
+function askPassphrase() {
+  const entered = prompt("Passphrase:");
+  if (!entered) return false;
+  passphrase = entered;
+  sessionStorage.setItem("x-post-agent-pass", entered);
+  return true;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers: headers(options.headers) });
   if (res.status === 401) {
-    const entered = prompt("Passphrase:");
-    if (entered) {
-      passphrase = entered;
-      sessionStorage.setItem("x-post-agent-pass", entered);
-      return api(path, options);
-    }
+    if (askPassphrase()) return api(path, options);
     throw new Error("Passphrase required.");
   }
   if (!res.ok) {
@@ -54,14 +75,14 @@ async function api(path, options = {}) {
 
 async function loadConfig() {
   try {
-    config = await api("/api/config");
-    const { model, search } = config;
+    state.config = await api("/api/config");
+    const { model, search, xApi } = state.config;
     els.chip.textContent = model.configured ? model.name : "no model key";
     els.chip.classList.toggle("warn", !model.configured);
     els.chip.title = [
       model.note || `Model: ${model.name}`,
       `Search: ${search.configured ? search.provider : "off"}`,
-      `X API: ${config.xApi.configured ? "on" : "oEmbed only"}`,
+      `X API: ${xApi.configured ? "on" : "oEmbed only"}`,
     ].join("\n");
   } catch {
     els.chip.textContent = "offline";
@@ -69,281 +90,306 @@ async function loadConfig() {
   }
 }
 
-/* ------------------------------- generate -------------------------------- */
+/* -------------------------------- sessions -------------------------------- */
 
-els.form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  generate();
-});
+/** Buckets for the sidebar. Recency is what makes a long list navigable. */
+function bucketOf(iso) {
+  const then = new Date(`${iso.replace(" ", "T")}Z`).getTime();
+  if (Number.isNaN(then)) return "Earlier";
+  const days = (Date.now() - then) / 86_400_000;
+  if (days < 1) return "Today";
+  if (days < 2) return "Yesterday";
+  if (days < 8) return "This week";
+  if (days < 31) return "This month";
+  return "Earlier";
+}
 
-els.input.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-    e.preventDefault();
-    generate();
-  }
-});
-
-// Grow the box with the text rather than scrolling inside it.
-els.input.addEventListener("input", () => {
-  els.input.style.height = "auto";
-  els.input.style.height = `${Math.min(els.input.scrollHeight, 340)}px`;
-});
-
-async function generate() {
-  const input = els.input.value.trim();
-  if (!input || inFlight) return;
-
-  inFlight = true;
-  els.send.disabled = true;
-  els.send.textContent = "Writing…";
-  els.empty.hidden = true;
-  els.result.hidden = true;
-  els.result.replaceChildren();
-  els.trace.hidden = false;
-  els.trace.replaceChildren();
-
+async function loadSessions() {
   try {
-    const res = await fetch("/api/generate", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ input }),
-    });
+    const { sessions } = await api("/api/sessions");
+    state.sessions = sessions;
+    renderSidebar();
+  } catch {
+    // A failure here shouldn't block composing; the list just stays empty.
+  }
+}
 
-    if (res.status === 401) {
-      const entered = prompt("Passphrase:");
-      if (entered) {
-        passphrase = entered;
-        sessionStorage.setItem("x-post-agent-pass", entered);
-        inFlight = false;
-        resetSend();
-        return generate();
-      }
-      throw new Error("Passphrase required.");
-    }
-    if (!res.ok || !res.body) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Request failed (${res.status}).`);
+function renderSidebar() {
+  els.sessionList.replaceChildren();
+  let lastBucket = "";
+
+  for (const s of state.sessions) {
+    const bucket = bucketOf(s.updated_at);
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      const head = document.createElement("div");
+      head.className = "group";
+      head.textContent = bucket;
+      els.sessionList.append(head);
     }
 
-    for await (const event of readSSE(res.body)) handleEvent(event);
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `session-item${s.id === state.currentId ? " on" : ""}`;
+
+    const bar = document.createElement("span");
+    bar.className = "bar";
+
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = s.title || "Untitled";
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = s.turns > 1 ? String(s.turns) : "";
+
+    item.append(bar, label, count);
+    item.addEventListener("click", () => openSession(s.id));
+    els.sessionList.append(item);
+  }
+}
+
+function setActive(id, title) {
+  state.currentId = id;
+  els.title.textContent = title || "New post";
+  els.rename.hidden = !id;
+  els.del.hidden = !id;
+  els.input.placeholder = id ? "Ask for a change…" : "Paste a link or type an idea…";
+  renderSidebar();
+}
+
+async function openSession(id) {
+  closeSidebarOnNarrow();
+  try {
+    const { session, turns } = await api(`/api/sessions/${id}`);
+    setActive(session.id, session.title);
+    els.thread.replaceChildren(threadInner(turns));
+    scrollToEnd(false);
   } catch (err) {
-    showError(err.message || String(err));
-  } finally {
-    inFlight = false;
-    resetSend();
+    showBanner(err.message, "bad");
   }
 }
 
-function resetSend() {
-  els.send.disabled = false;
-  els.send.textContent = "Write it";
+function newSession() {
+  closeSidebarOnNarrow();
+  setActive(null, "New post");
+  els.thread.replaceChildren(welcomeBlock());
+  els.input.focus();
 }
 
-/** Minimal SSE parser -- EventSource can't POST, so we read the stream ourselves. */
-async function* readSSE(body) {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
+function threadInner(turns) {
+  const inner = document.createElement("div");
+  inner.className = "thread-inner";
+  for (const t of turns) inner.append(turnBlock(t.input, t));
+  return inner;
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += value;
+function ensureInner() {
+  let inner = els.thread.querySelector(".thread-inner");
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.className = "thread-inner";
+    els.thread.replaceChildren(inner);
+  }
+  return inner;
+}
 
-    let split;
-    while ((split = buffer.indexOf("\n\n")) !== -1) {
-      const chunk = buffer.slice(0, split);
-      buffer = buffer.slice(split + 2);
+/* --------------------------------- welcome -------------------------------- */
 
-      const data = chunk
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim())
-        .join("\n");
+function welcomeBlock() {
+  const wrap = document.createElement("div");
+  wrap.className = "welcome";
 
-      if (!data) continue;
-      try {
-        yield JSON.parse(data);
-      } catch {
-        // Ignore malformed frames rather than killing the stream.
-      }
-    }
+  const mark = document.createElement("div");
+  mark.className = "welcome-mark";
+  mark.textContent = "✳";
+
+  const h = document.createElement("h2");
+  h.textContent = "What are we posting about?";
+
+  const p = document.createElement("p");
+  p.textContent =
+    "Paste a link, an X post, or just type the idea. The agent reads the source, looks things up when that helps, picks a format that suits it, and writes it the way you write.";
+
+  const starters = document.createElement("div");
+  starters.className = "starters";
+  fillStarters(starters);
+
+  wrap.append(mark, h, p, starters);
+  return wrap;
+}
+
+/** The static welcome in index.html and the JS-built one share these. */
+function fillStarters(container) {
+  container.replaceChildren();
+  for (const text of STARTERS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "starter";
+    b.textContent = text;
+    b.addEventListener("click", () => {
+      els.input.value = text;
+      resizeInput();
+      els.input.focus();
+    });
+    container.append(b);
   }
 }
 
-function handleEvent(event) {
-  switch (event.type) {
-    case "step":
-      markStepsDone();
-      els.trace.append(stepRow(event.label, event.detail));
-      break;
-    case "format":
-      markStepsDone();
-      break;
-    case "result":
-      markStepsDone();
-      renderResult(event.result);
-      break;
-    case "error":
-      markStepsDone();
-      showError(event.message);
-      break;
-  }
+/* ---------------------------------- turns --------------------------------- */
+
+/** One exchange: what the user asked, and what came back. */
+function turnBlock(askText, reply) {
+  const turn = document.createElement("div");
+  turn.className = "turn";
+
+  const ask = document.createElement("div");
+  ask.className = "ask";
+  ask.textContent = askText;
+  turn.append(ask);
+
+  if (reply) turn.append(replyBlock(reply));
+  return turn;
 }
 
-function stepRow(label, detail) {
-  const row = document.createElement("div");
-  row.className = "step active";
-
-  const dot = document.createElement("span");
-  dot.className = "dot";
-  dot.textContent = "●";
-
-  const text = document.createElement("span");
-  text.textContent = label;
-
-  row.append(dot, text);
-
-  if (detail) {
-    const d = document.createElement("span");
-    d.className = "detail";
-    d.textContent = detail;
-    row.append(d);
-  }
-  return row;
-}
-
-function markStepsDone() {
-  for (const step of els.trace.querySelectorAll(".step.active")) {
-    step.classList.remove("active");
-    const dot = step.querySelector(".dot");
-    if (dot) dot.textContent = "✓";
-  }
-}
-
-/* -------------------------------- results -------------------------------- */
-
-function renderResult(result) {
-  els.result.hidden = false;
-  els.result.replaceChildren();
-
-  const bar = document.createElement("div");
-  bar.className = "format-bar";
-
-  const badge = document.createElement("span");
-  badge.className = "format-badge";
-  badge.textContent = result.formatLabel;
-
-  const why = document.createElement("span");
-  why.className = "format-why";
-  why.textContent = result.formatRationale;
-
-  bar.append(badge, why);
-  els.result.append(bar);
-
-  result.variants.forEach((variant, i) => {
-    els.result.append(variantCard(variant, i, result.draftId));
-  });
-
-  if (result.warnings?.length) els.result.append(warningBlock(result.warnings));
-  if (result.sources?.length) els.result.append(sourceBlock(result.sources));
-}
-
-function variantCard(variant, index, draftId) {
-  const card = document.createElement("article");
-  card.className = "card";
+function replyBlock(reply) {
+  const wrap = document.createElement("div");
+  wrap.className = "reply";
 
   const head = document.createElement("div");
-  head.className = "card-head";
+  head.className = "reply-head";
+
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = reply.formatLabel || reply.format || "draft";
+
+  const why = document.createElement("span");
+  why.className = "reply-why";
+  why.textContent = reply.formatRationale || reply.rationale || "";
+
+  head.append(badge, why);
+  wrap.append(head);
+
+  (reply.variants || []).forEach((v, i) => {
+    wrap.append(postCard(v, i, reply.draftId || reply.id));
+  });
+
+  if (reply.warnings?.length) wrap.append(warningBlock(reply.warnings));
+  if (reply.sources?.length) wrap.append(sourceBlock(reply.sources));
+  return wrap;
+}
+
+/* ------------------------------- post preview ------------------------------ */
+
+function postCard(variant, index, draftId) {
+  const card = document.createElement("article");
+  card.className = "post";
+
+  const head = document.createElement("div");
+  head.className = "post-head";
 
   const n = document.createElement("span");
-  n.className = "card-n";
-  n.textContent = `OPTION ${index + 1}`;
+  n.className = "post-n";
+  n.textContent = `Option ${index + 1}`;
 
   const angle = document.createElement("span");
-  angle.className = "card-angle";
+  angle.className = "post-angle";
   angle.textContent = variant.angle || "";
 
   head.append(n, angle);
-  card.append(head);
 
-  const fullText = variant.parts.map((p) => p.text).join("\n\n");
+  const tweets = document.createElement("div");
+  tweets.className = "tweets";
 
-  variant.parts.forEach((part, i) => {
-    const wrap = document.createElement("div");
-    wrap.className = "part";
+  const handle = (state.config.handle || "you").replace(/^@/, "");
+  const parts = variant.parts || [];
+
+  parts.forEach((part, i) => {
+    const tweet = document.createElement("div");
+    tweet.className = `tweet${i < parts.length - 1 ? " linked" : ""}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.textContent = handle.charAt(0).toUpperCase() || "✳";
+
+    const body = document.createElement("div");
+
+    const who = document.createElement("div");
+    who.className = "tweet-handle";
+    who.textContent = handle;
+    const at = document.createElement("span");
+    at.textContent = `  @${handle}${parts.length > 1 ? ` · ${i + 1}/${parts.length}` : ""}`;
+    who.append(at);
 
     const text = document.createElement("div");
-    text.className = "part-text";
+    text.className = "tweet-text";
     text.textContent = part.text;
 
     const meta = document.createElement("div");
-    const over = part.chars > config.maxPostChars;
-    meta.className = `part-meta${over ? " over" : ""}`;
-    meta.textContent =
-      (variant.parts.length > 1 ? `${i + 1}/${variant.parts.length} · ` : "") +
-      `${part.chars}/${config.maxPostChars}`;
+    const over = part.chars > state.config.maxPostChars;
+    meta.className = `tweet-meta${over ? " over" : ""}`;
+    meta.textContent = `${part.chars} / ${state.config.maxPostChars}`;
 
-    wrap.append(text, meta);
-    card.append(wrap);
+    body.append(who, text, meta);
+    tweet.append(avatar, body);
+    tweets.append(tweet);
   });
 
-  card.append(actionBar(card, fullText, draftId));
+  card.append(head, tweets, actionBar(card, parts.map((p) => p.text).join("\n\n"), draftId));
   return card;
 }
 
 function actionBar(card, fullText, draftId) {
   const bar = document.createElement("div");
-  bar.className = "actions";
+  bar.className = "post-actions";
 
-  const copy = button("Copy", async () => {
+  const copy = act("Copy", async () => {
     await navigator.clipboard.writeText(fullText);
     copy.textContent = "Copied";
-    setTimeout(() => (copy.textContent = "Copy"), 1400);
+    copy.classList.add("done");
+    setTimeout(() => {
+      copy.textContent = "Copy";
+      copy.classList.remove("done");
+    }, 1400);
   });
 
-  // Opens X's compose window prefilled. The user reviews and posts it
-  // themselves -- the agent never posts on anyone's behalf.
-  const open = button("Open in X", () => {
-    const url = `https://x.com/intent/post?text=${encodeURIComponent(fullText)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+  // Opens X's composer prefilled. The user reviews and posts it themselves —
+  // the agent has no write path to X.
+  const open = act("Open in X", () => {
+    window.open(
+      `https://x.com/intent/post?text=${encodeURIComponent(fullText)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
+  open.classList.add("primary");
 
-  const spacer = document.createElement("span");
-  spacer.className = "spacer";
+  const sep = document.createElement("span");
+  sep.className = "sep";
 
-  const posted = button("Posted", () => sendFeedback(bar, draftId, "posted", fullText));
-  const edited = button("I edited it", () => toggleEditor(card, bar, draftId, fullText));
-  const nope = button("Not this", () => sendFeedback(bar, draftId, "rejected"));
+  const posted = act("Posted", () => sendFeedback(bar, draftId, "posted", fullText));
+  const edited = act("Edited", () => toggleEditor(card, bar, draftId, fullText));
+  const nope = act("Not this", () => sendFeedback(bar, draftId, "rejected"));
 
-  bar.append(copy, open, spacer, posted, edited, nope);
+  bar.append(copy, open, sep, posted, edited, nope);
   return bar;
 }
 
 function toggleEditor(card, bar, draftId, fullText) {
   const existing = card.querySelector(".edit-box");
-  if (existing) {
-    existing.remove();
-    return;
-  }
+  if (existing) return existing.remove();
 
   const box = document.createElement("div");
   box.className = "edit-box";
 
   const area = document.createElement("textarea");
-  area.rows = 5;
   area.value = fullText;
 
   const row = document.createElement("div");
-  row.className = "actions";
-  row.style.background = "transparent";
-  row.style.border = "0";
-  row.style.padding = "0";
+  row.className = "post-actions";
+  row.style.cssText = "background:transparent;border:0;padding:0";
 
-  const save = button("Save what you posted", () =>
-    sendFeedback(bar, draftId, "edited", area.value.trim()),
-  );
-  row.append(save);
-
+  row.append(act("Save what you posted", () => sendFeedback(bar, draftId, "edited", area.value.trim())));
   box.append(area, row);
   bar.parentElement.insertBefore(box, bar);
   area.focus();
@@ -357,8 +403,7 @@ async function sendFeedback(bar, draftId, verdict, finalText) {
       body: JSON.stringify({ draftId, verdict, finalText }),
     });
 
-    const card = bar.closest(".card");
-    card?.querySelector(".edit-box")?.remove();
+    bar.closest(".post")?.querySelector(".edit-box")?.remove();
 
     const note = document.createElement("div");
     note.className = "notice ok";
@@ -370,13 +415,15 @@ async function sendFeedback(bar, draftId, verdict, finalText) {
     bar.replaceWith(note);
   } catch (err) {
     for (const b of bar.querySelectorAll("button")) b.disabled = false;
-    showError(err.message);
+    showBanner(err.message, "bad");
   }
 }
 
+/* -------------------------------- fragments -------------------------------- */
+
 function warningBlock(warnings) {
   const box = document.createElement("div");
-  box.className = "notice";
+  box.className = "notice warn";
 
   const title = document.createElement("strong");
   title.textContent = "Worth checking";
@@ -415,38 +462,264 @@ function sourceBlock(sources) {
   return details;
 }
 
-function showError(message) {
-  const box = document.createElement("div");
-  box.className = "notice";
-  box.textContent = message;
-  els.result.hidden = false;
-  els.result.append(box);
-}
-
-function button(label, onClick) {
+function act(label, onClick) {
   const b = document.createElement("button");
   b.type = "button";
+  b.className = "act";
   b.textContent = label;
   b.addEventListener("click", onClick);
   return b;
 }
 
-/* --------------------------------- memory -------------------------------- */
+function showBanner(message, kind = "bad") {
+  const box = document.createElement("div");
+  box.className = `notice ${kind}`;
+  box.textContent = message;
+  ensureInner().append(box);
+  scrollToEnd();
+}
 
-$("open-memory").addEventListener("click", openMemory);
-$("close-memory").addEventListener("click", closeMemory);
-els.scrim.addEventListener("click", closeMemory);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !els.panel.hidden) closeMemory();
+function scrollToEnd(smooth = true) {
+  requestAnimationFrame(() => {
+    els.thread.scrollTo({ top: els.thread.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  });
+}
+
+/* -------------------------------- generate -------------------------------- */
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  generate();
 });
 
-async function openMemory() {
+els.input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    generate();
+  }
+});
+
+els.input.addEventListener("input", resizeInput);
+
+function resizeInput() {
+  els.input.style.height = "auto";
+  els.input.style.height = `${Math.min(els.input.scrollHeight, 220)}px`;
+}
+
+function setBusy(busy) {
+  state.busy = busy;
+  els.send.disabled = busy;
+  els.send.classList.toggle("busy", busy);
+  els.note.textContent = busy ? "" : els.note.textContent;
+}
+
+async function generate() {
+  const input = els.input.value.trim();
+  if (!input || state.busy) return;
+
+  setBusy(true);
+  els.welcome?.remove();
+  els.thread.querySelector(".welcome")?.remove();
+
+  const inner = ensureInner();
+  const turn = turnBlock(input, null);
+  const trace = document.createElement("div");
+  trace.className = "trace";
+  turn.append(trace);
+  inner.append(turn);
+
+  els.input.value = "";
+  resizeInput();
+  scrollToEnd();
+
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ input, sessionId: state.currentId || undefined }),
+    });
+
+    if (res.status === 401) {
+      if (askPassphrase()) {
+        turn.remove();
+        els.input.value = input;
+        setBusy(false);
+        return generate();
+      }
+      throw new Error("Passphrase required.");
+    }
+    if (!res.ok || !res.body) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed (${res.status}).`);
+    }
+
+    for await (const event of readSSE(res.body)) handleEvent(event, turn, trace);
+  } catch (err) {
+    markTraceDone(trace);
+    const note = document.createElement("div");
+    note.className = "notice bad";
+    note.textContent = err.message || String(err);
+    turn.append(note);
+    scrollToEnd();
+  } finally {
+    setBusy(false);
+    loadSessions();
+  }
+}
+
+/** Minimal SSE reader — EventSource can't POST, so we parse the stream ourselves. */
+async function* readSSE(body) {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += value;
+
+    let split;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const chunk = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+
+      const data = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+
+      if (!data) continue;
+      try {
+        yield JSON.parse(data);
+      } catch {
+        // Ignore a malformed frame rather than killing the stream.
+      }
+    }
+  }
+}
+
+function handleEvent(event, turn, trace) {
+  switch (event.type) {
+    case "session":
+      // Adopt the session immediately so a follow-up lands in the same thread.
+      if (event.isNew) setActive(event.sessionId, event.title);
+      break;
+    case "step":
+      markTraceDone(trace);
+      trace.append(stepRow(event.label, event.detail));
+      scrollToEnd();
+      break;
+    case "result":
+      markTraceDone(trace);
+      trace.remove();
+      turn.append(replyBlock(event.result));
+      scrollToEnd();
+      break;
+    case "error": {
+      markTraceDone(trace);
+      const note = document.createElement("div");
+      note.className = "notice bad";
+      note.textContent = event.message;
+      turn.append(note);
+      scrollToEnd();
+      break;
+    }
+  }
+}
+
+function stepRow(label, detail) {
+  const row = document.createElement("div");
+  row.className = "step active";
+
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  dot.textContent = "●";
+
+  const text = document.createElement("span");
+  text.textContent = label;
+
+  row.append(dot, text);
+
+  if (detail) {
+    const d = document.createElement("span");
+    d.className = "detail";
+    d.textContent = detail;
+    row.append(d);
+  }
+  return row;
+}
+
+function markTraceDone(trace) {
+  for (const step of trace.querySelectorAll(".step.active")) {
+    step.classList.remove("active");
+    const dot = step.querySelector(".dot");
+    if (dot) dot.textContent = "✓";
+  }
+}
+
+/* ------------------------------ session chrome ----------------------------- */
+
+$("new-session").addEventListener("click", newSession);
+
+els.rename.addEventListener("click", async () => {
+  if (!state.currentId) return;
+  const next = prompt("Rename session:", els.title.textContent);
+  if (!next?.trim()) return;
+  await api(`/api/sessions/${state.currentId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: next.trim() }),
+  });
+  els.title.textContent = next.trim();
+  await loadSessions();
+});
+
+els.del.addEventListener("click", async () => {
+  if (!state.currentId) return;
+  if (!confirm("Delete this session and all its drafts?")) return;
+  await api(`/api/sessions/${state.currentId}`, { method: "DELETE" });
+  newSession();
+  await loadSessions();
+});
+
+/* --------------------------------- drawer --------------------------------- */
+
+function openSidebar() {
+  els.sidebar.classList.add("open");
+  els.scrim.hidden = false;
+}
+function closeSidebarOnNarrow() {
+  els.sidebar.classList.remove("open");
+  if (els.panel.hidden) els.scrim.hidden = true;
+}
+
+$("sidebar-open").addEventListener("click", openSidebar);
+$("sidebar-close").addEventListener("click", closeSidebarOnNarrow);
+
+/* -------------------------------- settings -------------------------------- */
+
+$("open-settings").addEventListener("click", openSettings);
+$("close-settings").addEventListener("click", closeSettings);
+els.scrim.addEventListener("click", () => {
+  closeSettings();
+  closeSidebarOnNarrow();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (!els.panel.hidden) closeSettings();
+    else closeSidebarOnNarrow();
+  }
+});
+
+async function openSettings() {
   els.panel.hidden = false;
   els.scrim.hidden = false;
   await Promise.all([loadSettings(), loadProfile(), loadSamples(), loadPreferences()]);
 }
 
-/* ---------------------------------- tabs --------------------------------- */
+function closeSettings() {
+  els.panel.hidden = true;
+  if (!els.sidebar.classList.contains("open")) els.scrim.hidden = true;
+}
 
 for (const tab of document.querySelectorAll(".tab")) {
   tab.addEventListener("click", () => {
@@ -457,127 +730,7 @@ for (const tab of document.querySelectorAll(".tab")) {
   });
 }
 
-function closeMemory() {
-  els.panel.hidden = true;
-  els.scrim.hidden = true;
-}
-
-async function loadProfile() {
-  const { profile, handle } = await api("/api/memory/profile");
-  $("m-handle").value = handle || "";
-  $("m-voice").value = profile.voice || "";
-  $("m-emoji").value = profile.emoji;
-  $("m-hashtags").value = profile.hashtags;
-  $("m-maxchars").value = profile.max_chars;
-  $("m-audience").value = profile.audience || "";
-  $("m-do").value = (profile.do || []).join("\n");
-  $("m-dont").value = (profile.dont || []).join("\n");
-}
-
-$("save-profile").addEventListener("click", async () => {
-  const lines = (id) =>
-    $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
-
-  await api("/api/memory/profile", {
-    method: "PUT",
-    body: JSON.stringify({
-      handle: $("m-handle").value.trim(),
-      profile: {
-        voice: $("m-voice").value.trim(),
-        emoji: $("m-emoji").value,
-        hashtags: $("m-hashtags").value,
-        max_chars: Number($("m-maxchars").value) || 280,
-        audience: $("m-audience").value.trim(),
-        do: lines("m-do"),
-        dont: lines("m-dont"),
-      },
-    }),
-  });
-
-  config.maxPostChars = Number($("m-maxchars").value) || 280;
-  const saved = $("profile-saved");
-  saved.hidden = false;
-  setTimeout(() => (saved.hidden = true), 1600);
-});
-
-async function loadSamples() {
-  const { samples } = await api("/api/memory/samples");
-  const list = $("sample-list");
-  list.replaceChildren();
-
-  for (const s of samples) {
-    const li = document.createElement("li");
-    const span = document.createElement("span");
-    span.textContent = s.text.length > 160 ? `${s.text.slice(0, 160)}…` : s.text;
-    li.append(
-      span,
-      button("×", async () => {
-        await api(`/api/memory/samples/${s.id}`, { method: "DELETE" });
-        li.remove();
-      }),
-    );
-    list.append(li);
-  }
-}
-
-$("add-samples").addEventListener("click", async () => {
-  const text = $("m-samples").value.trim();
-  if (!text) return;
-  await api("/api/memory/samples", { method: "POST", body: JSON.stringify({ text }) });
-  $("m-samples").value = "";
-  await loadSamples();
-});
-
-async function loadPreferences() {
-  const { preferences } = await api("/api/memory/preferences");
-  renderPreferences(preferences);
-}
-
-function renderPreferences(preferences) {
-  const list = $("pref-list");
-  list.replaceChildren();
-
-  for (const p of preferences) {
-    const li = document.createElement("li");
-    if (!p.active) li.className = "off";
-
-    const span = document.createElement("span");
-    span.textContent = p.source === "inferred" ? `${p.rule}  (learned)` : p.rule;
-
-    li.append(
-      span,
-      button(p.active ? "mute" : "unmute", async () => {
-        const { preferences: next } = await api(`/api/memory/preferences/${p.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ active: !p.active }),
-        });
-        renderPreferences(next);
-      }),
-      button("×", async () => {
-        await api(`/api/memory/preferences/${p.id}`, { method: "DELETE" });
-        li.remove();
-      }),
-    );
-    list.append(li);
-  }
-}
-
-$("pref-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const rule = $("m-pref").value.trim();
-  if (!rule) return;
-  const { preferences } = await api("/api/memory/preferences", {
-    method: "POST",
-    body: JSON.stringify({ rule }),
-  });
-  $("m-pref").value = "";
-  renderPreferences(preferences);
-});
-
-loadConfig();
-
-
-/* ------------------------------- providers -------------------------------- */
+/* -------------------------------- providers -------------------------------- */
 
 let providers = [];
 let modelListLoaded = false;
@@ -634,11 +787,10 @@ async function loadSettings() {
   $("s-search").value = data.settings.SEARCH_PROVIDER;
   applyProviderUi(select.value);
 
-  const model = data.model;
   setNote(
     $("s-result"),
-    model.configured ? `Live: ${model.name}` : model.note || "Not configured.",
-    model.configured ? "ok" : "bad",
+    data.model.configured ? `Live: ${data.model.name}` : data.model.note || "Not configured.",
+    data.model.configured ? "ok" : "bad",
   );
 
   $("s-key-state").textContent = keyStateText(data.secrets.MODEL_API_KEY, "Model API key");
@@ -682,7 +834,7 @@ async function loadModelList() {
       setNote($("s-model-note"), `${models.length} models available — start typing to filter.`);
     }
   } catch {
-    // A missing catalogue just means typing the id by hand; not worth surfacing.
+    // A missing catalogue just means typing the id by hand.
   }
 }
 
@@ -706,8 +858,7 @@ $("s-save").addEventListener("click", async () => {
       res.model.configured ? "ok" : "bad",
     );
     modelListLoaded = false;
-    await loadSettings();
-    await loadConfig();
+    await Promise.all([loadSettings(), loadConfig()]);
   } catch (err) {
     setNote($("s-result"), err.message, "bad");
   }
@@ -738,8 +889,7 @@ async function saveSecret(name, inputId, stateId, label) {
       body: JSON.stringify({ value }),
     });
     input.value = "";
-    await loadSettings();
-    await loadConfig();
+    await Promise.all([loadSettings(), loadConfig()]);
     if (res.shadowedByEnv) {
       $(stateId).textContent =
         `Saved, but a Cloudflare secret for ${label} already exists and takes precedence.`;
@@ -755,8 +905,7 @@ $("s-key-save").addEventListener("click", () =>
 
 $("s-key-clear").addEventListener("click", async () => {
   await api("/api/settings/secrets/MODEL_API_KEY", { method: "DELETE" });
-  await loadSettings();
-  await loadConfig();
+  await Promise.all([loadSettings(), loadConfig()]);
 });
 
 $("s-search-save").addEventListener("click", async () => {
@@ -765,10 +914,129 @@ $("s-search-save").addEventListener("click", async () => {
     body: JSON.stringify({ SEARCH_PROVIDER: $("s-search").value }),
   });
   await saveSecret("SEARCH_API_KEY", "s-searchkey", "s-search-state", "the search key");
-  await loadSettings();
-  await loadConfig();
+  await Promise.all([loadSettings(), loadConfig()]);
 });
 
 $("s-x-save").addEventListener("click", () =>
   saveSecret("X_BEARER_TOKEN", "s-xtoken", "s-x-state", "the X bearer token"),
 );
+
+/* --------------------------------- memory --------------------------------- */
+
+async function loadProfile() {
+  const { profile, handle } = await api("/api/memory/profile");
+  $("m-handle").value = handle || "";
+  $("m-voice").value = profile.voice || "";
+  $("m-emoji").value = profile.emoji;
+  $("m-hashtags").value = profile.hashtags;
+  $("m-maxchars").value = profile.max_chars;
+  $("m-audience").value = profile.audience || "";
+  $("m-do").value = (profile.do || []).join("\n");
+  $("m-dont").value = (profile.dont || []).join("\n");
+}
+
+$("save-profile").addEventListener("click", async () => {
+  const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
+
+  await api("/api/memory/profile", {
+    method: "PUT",
+    body: JSON.stringify({
+      handle: $("m-handle").value.trim(),
+      profile: {
+        voice: $("m-voice").value.trim(),
+        emoji: $("m-emoji").value,
+        hashtags: $("m-hashtags").value,
+        max_chars: Number($("m-maxchars").value) || 280,
+        audience: $("m-audience").value.trim(),
+        do: lines("m-do"),
+        dont: lines("m-dont"),
+      },
+    }),
+  });
+
+  await loadConfig();
+  const saved = $("profile-saved");
+  saved.hidden = false;
+  setTimeout(() => (saved.hidden = true), 1600);
+});
+
+async function loadSamples() {
+  const { samples } = await api("/api/memory/samples");
+  const list = $("sample-list");
+  list.replaceChildren();
+
+  for (const s of samples) {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = s.text.length > 150 ? `${s.text.slice(0, 150)}…` : s.text;
+    li.append(
+      span,
+      act("✕", async () => {
+        await api(`/api/memory/samples/${s.id}`, { method: "DELETE" });
+        li.remove();
+      }),
+    );
+    list.append(li);
+  }
+}
+
+$("add-samples").addEventListener("click", async () => {
+  const text = $("m-samples").value.trim();
+  if (!text) return;
+  await api("/api/memory/samples", { method: "POST", body: JSON.stringify({ text }) });
+  $("m-samples").value = "";
+  await loadSamples();
+});
+
+async function loadPreferences() {
+  renderPreferences((await api("/api/memory/preferences")).preferences);
+}
+
+function renderPreferences(preferences) {
+  const list = $("pref-list");
+  list.replaceChildren();
+
+  for (const p of preferences) {
+    const li = document.createElement("li");
+    if (!p.active) li.className = "off";
+
+    const span = document.createElement("span");
+    span.textContent = p.source === "inferred" ? `${p.rule}  (learned)` : p.rule;
+
+    li.append(
+      span,
+      act(p.active ? "mute" : "unmute", async () => {
+        const { preferences: next } = await api(`/api/memory/preferences/${p.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ active: !p.active }),
+        });
+        renderPreferences(next);
+      }),
+      act("✕", async () => {
+        await api(`/api/memory/preferences/${p.id}`, { method: "DELETE" });
+        li.remove();
+      }),
+    );
+    list.append(li);
+  }
+}
+
+$("pref-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const rule = $("m-pref").value.trim();
+  if (!rule) return;
+  const { preferences } = await api("/api/memory/preferences", {
+    method: "POST",
+    body: JSON.stringify({ rule }),
+  });
+  $("m-pref").value = "";
+  renderPreferences(preferences);
+});
+
+/* --------------------------------- startup -------------------------------- */
+
+if (els.starters) fillStarters(els.starters);
+loadConfig();
+loadSessions();
+resizeInput();
+els.input.focus();

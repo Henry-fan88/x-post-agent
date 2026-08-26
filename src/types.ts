@@ -84,6 +84,9 @@ export interface Understanding {
 
 export interface GenerateResult {
   draftId: string;
+  sessionId: string;
+  /** True when this turn refined an earlier draft rather than starting fresh. */
+  refined: boolean;
   format: string;
   formatLabel: string;
   formatRationale: string;
@@ -98,6 +101,7 @@ export type Verdict = "posted" | "edited" | "rejected";
 
 /** Progress events streamed to the UI over SSE. */
 export type AgentEvent =
+  | { type: "session"; sessionId: string; isNew: boolean; title: string }
   | { type: "step"; step: string; label: string; detail?: string }
   | { type: "sources"; sources: SourceDoc[] }
   | { type: "format"; format: string; label: string; rationale: string }

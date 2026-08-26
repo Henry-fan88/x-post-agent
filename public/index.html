@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>X post agent</title>
+    <title>post agent</title>
     <meta name="description" content="Turn an idea or a link into a post in your voice." />
     <link rel="stylesheet" href="/styles.css" />
     <link
@@ -12,47 +12,76 @@
     />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="mark">✳</span>
-        <span>post agent</span>
-      </div>
-      <div class="topbar-right">
-        <span id="status-chip" class="chip" title="Model provider">checking…</span>
-        <button id="open-memory" class="ghost" type="button">Settings</button>
-      </div>
-    </header>
-
-    <main>
-      <!-- The whole product: one box. Paste a link or type an idea. -->
-      <form id="composer" class="composer">
-        <textarea
-          id="input"
-          rows="3"
-          placeholder="Paste a link, an X post, or just type the idea…"
-          autofocus
-          spellcheck="false"
-        ></textarea>
-        <div class="composer-foot">
-          <span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> to write</span>
-          <button id="send" type="submit">Write it</button>
+    <div class="app">
+      <!-- ------------------------------ sidebar ------------------------------ -->
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-head">
+          <div class="brand"><span class="mark">✳</span><span>post agent</span></div>
+          <button id="sidebar-close" class="icon only-narrow" type="button" aria-label="Close menu">✕</button>
         </div>
-      </form>
 
-      <section id="trace" class="trace" hidden aria-live="polite"></section>
-      <section id="result" class="result" hidden></section>
+        <button id="new-session" class="new-btn" type="button">
+          <span class="plus">＋</span> New post
+        </button>
 
-      <p id="empty" class="empty">
-        The agent reads what you send, looks things up when it needs to, picks a format
-        that suits the idea, and writes it the way you write.
-      </p>
-    </main>
+        <nav id="session-list" class="sessions" aria-label="Sessions"></nav>
 
-    <!-- Settings drawer -->
-    <div id="memory-panel" class="panel" hidden>
+        <div class="sidebar-foot">
+          <button id="open-settings" class="ghost wide" type="button">
+            <span class="gear">⚙</span> Settings
+          </button>
+          <div id="status-chip" class="chip" title="Model provider">checking…</div>
+        </div>
+      </aside>
+
+      <!-- ------------------------------- main -------------------------------- -->
+      <main class="main">
+        <header class="main-head">
+          <button id="sidebar-open" class="icon only-narrow" type="button" aria-label="Open menu">☰</button>
+          <h1 id="session-title" class="session-title">New post</h1>
+          <button id="rename-session" class="icon" type="button" title="Rename" hidden>✎</button>
+          <span class="grow"></span>
+          <button id="delete-session" class="icon" type="button" title="Delete this session" hidden>🗑</button>
+        </header>
+
+        <div id="thread" class="thread">
+          <div id="welcome" class="welcome">
+            <div class="welcome-mark">✳</div>
+            <h2>What are we posting about?</h2>
+            <p>
+              Paste a link, an X post, or just type the idea. The agent reads the source,
+              looks things up when that helps, picks a format that suits it, and writes it
+              the way you write.
+            </p>
+            <div id="starters" class="starters"></div>
+          </div>
+        </div>
+
+        <div class="composer-wrap">
+          <form id="composer" class="composer">
+            <textarea
+              id="input"
+              rows="1"
+              placeholder="Paste a link or type an idea…"
+              spellcheck="false"
+            ></textarea>
+            <div class="composer-foot">
+              <span id="composer-hint" class="hint"><kbd>⌘</kbd><kbd>↵</kbd></span>
+              <button id="send" type="submit" aria-label="Write it">
+                <span class="send-icon">↑</span>
+              </button>
+            </div>
+          </form>
+          <p id="composer-note" class="composer-note"></p>
+        </div>
+      </main>
+    </div>
+
+    <!-- ----------------------------- settings ------------------------------- -->
+    <div id="settings-panel" class="panel" hidden>
       <div class="panel-head">
         <h2>Settings</h2>
-        <button id="close-memory" class="ghost" type="button">Close</button>
+        <button id="close-settings" class="icon" type="button" aria-label="Close">✕</button>
       </div>
 
       <nav class="tabs" role="tablist">
@@ -63,25 +92,19 @@
       </nav>
 
       <div class="panel-body">
-        <!-- ---------------------------- Model ---------------------------- -->
         <div class="tabpanel" data-panel="providers">
           <section>
             <h3>Model</h3>
-            <label>Provider
-              <select id="s-provider"></select>
-            </label>
+            <label>Provider<select id="s-provider"></select></label>
             <p id="s-provider-note" class="muted"></p>
-
             <label id="s-baseurl-row">Base URL
               <input id="s-baseurl" type="text" placeholder="https://openrouter.ai/api/v1" />
             </label>
-
             <label>Model
               <input id="s-model" type="text" list="s-model-list" placeholder="provider/model-name" />
             </label>
             <datalist id="s-model-list"></datalist>
             <p id="s-model-note" class="muted"></p>
-
             <label id="s-jsonmode-row">JSON mode
               <select id="s-jsonmode">
                 <option value="schema">schema — strict, best when supported</option>
@@ -89,7 +112,6 @@
                 <option value="off">off — rely on the prompt</option>
               </select>
             </label>
-
             <div class="row">
               <button id="s-save" type="button">Save</button>
               <button id="s-test" class="ghost" type="button">Test connection</button>
@@ -142,7 +164,6 @@
           </section>
         </div>
 
-        <!-- ---------------------------- Voice ---------------------------- -->
         <div class="tabpanel" data-panel="voice" hidden>
           <section>
             <h3>Voice</h3>
@@ -168,18 +189,19 @@
             <label>Audience<input id="m-audience" type="text" /></label>
             <label>Always<textarea id="m-do" rows="3" placeholder="One per line"></textarea></label>
             <label>Never<textarea id="m-dont" rows="3" placeholder="One per line"></textarea></label>
-            <button id="save-profile" type="button">Save voice</button>
-            <span id="profile-saved" class="saved" hidden>saved</span>
+            <div class="row">
+              <button id="save-profile" type="button">Save voice</button>
+              <span id="profile-saved" class="saved" hidden>saved</span>
+            </div>
           </section>
         </div>
 
-        <!-- ---------------------------- Posts ---------------------------- -->
         <div class="tabpanel" data-panel="posts" hidden>
           <section>
             <h3>Your posts</h3>
             <p class="muted">
-              Paste a few posts you've actually written, separated by blank lines. This is
-              what the agent imitates.
+              Paste posts you've actually written, separated by blank lines. This is the
+              corpus the agent imitates — the single highest-value thing here.
             </p>
             <textarea id="m-samples" rows="6" placeholder="Paste posts here…"></textarea>
             <button id="add-samples" type="button">Add posts</button>
@@ -187,7 +209,6 @@
           </section>
         </div>
 
-        <!-- ---------------------------- Rules ---------------------------- -->
         <div class="tabpanel" data-panel="rules" hidden>
           <section>
             <h3>Rules</h3>

@@ -281,3 +281,90 @@ Examples of bad rules: "Mention the pricing change." "Write about Cloudflare."
 
 Return only the JSON object.`;
 }
+
+
+/* ------------------------------- 6. refine ------------------------------- */
+
+export const REFINE_SCHEMA = {
+  type: "object",
+  properties: {
+    format: { type: "string" },
+    changed: { type: "string" },
+    variants: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          parts: { type: "array", items: { type: "string" } },
+          angle: { type: "string" },
+        },
+        required: ["parts", "angle"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["format", "changed", "variants"],
+  additionalProperties: false,
+} as const;
+
+export interface RefineTurn {
+  instruction: string;
+  format: string;
+  variants: { parts: { text: string }[] }[];
+}
+
+/**
+ * A follow-up inside a session.
+ *
+ * The prior drafts are the starting point, not a reference -- the user is
+ * asking for a change to something specific, so the job is to make that change
+ * and leave the rest alone.
+ */
+export function refinePrompt(
+  brief: string,
+  history: RefineTurn[],
+  instruction: string,
+  sources: SourceDoc[],
+  maxChars: number,
+): string {
+  const transcript = history
+    .map((turn, i) => {
+      const drafts = turn.variants
+        .map((v, n) => `  Option ${n + 1}:\n${v.parts.map((p) => `    ${p.text}`).join("\n")}`)
+        .join("\n");
+      return `Turn ${i + 1}
+They said: ${turn.instruction}
+You wrote (format: ${turn.format}):
+${drafts}`;
+    })
+    .join("\n\n");
+
+  return `${brief}${sourceBlock(sources)}
+
+# The conversation so far
+${transcript}
+
+# What they want now
+<input>
+${instruction}
+</input>
+
+Apply this change to the most recent drafts. Keep everything they did not ask you
+to change -- this is a revision, not a fresh attempt. If the request implies a
+different format (a thread, a one-liner, a list), switch to it; otherwise keep
+the format you were using.
+
+Hard limit: ${maxChars} characters per post.
+
+Return JSON with:
+- format: the format id you used, whether or not it changed
+- changed: one short line, addressed to the user, saying what you did
+- variants: array of exactly 2 objects, each with
+  - parts: array of post texts (one element for a single post, more for a thread)
+  - angle: one short line on how this variant differs from the other
+
+Return only the JSON object.`;
+}
+
+/** Available to the refine stage so it can name a format it switches to. */
+export { formatCatalogue };

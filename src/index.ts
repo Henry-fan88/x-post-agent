@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { formatSummaries } from "./agent/orchestrator";
 import { resolveConfig } from "./config/settings";
+import { getProfile } from "./memory/store";
 import { createModel } from "./llm";
 import { agentRoutes } from "./routes/agent";
 import { memoryRoutes } from "./routes/memory";
@@ -34,11 +35,17 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/config", async (c) => {
-  const cfg = await resolveConfig(c.env, c.env.DB);
+  const [cfg, profile] = await Promise.all([
+    resolveConfig(c.env, c.env.DB),
+    getProfile(c.env.DB),
+  ]);
   const { model, configured, note } = createModel(cfg);
   const search = createSearchProvider(cfg);
 
   return c.json({
+    // Not sensitive, and the UI needs it to render post previews before the
+    // user has authenticated against the gated memory routes.
+    handle: profile.handle,
     model: { name: model.name, configured, note },
     search: { provider: search?.name ?? "none", configured: Boolean(search) },
     xApi: { configured: Boolean(cfg.xBearerToken) },

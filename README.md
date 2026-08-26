@@ -151,9 +151,11 @@ db/seed.sql           Optional starter memory
 | Method | Path | |
 |---|---|---|
 | `GET` | `/api/config` | What's configured; drives the UI |
-| `POST` | `/api/generate` | `{input}` → SSE stream of progress, then the drafts |
+| `POST` | `/api/generate` | `{input, sessionId?}` → SSE stream of progress, then the drafts. With a `sessionId` it refines that session's last draft |
 | `POST` | `/api/feedback` | `{draftId, verdict, finalText?, note?}` — this is what teaches it |
-| `GET` | `/api/history` | Recent drafts and their verdicts |
+| `GET` | `/api/sessions` | Sessions, newest first |
+| `GET` | `/api/sessions/:id` | One session and every turn in it |
+| `PATCH`/`DELETE` | `/api/sessions/:id` | Rename or delete a session |
 | `GET`/`PUT` | `/api/memory/profile` | Your voice |
 | `GET`/`POST`/`DELETE` | `/api/memory/samples` | Writing samples |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/api/memory/preferences` | Rules |

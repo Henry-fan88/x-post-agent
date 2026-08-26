@@ -35,10 +35,13 @@ import {
   CRITIQUE_SCHEMA,
   DRAFT_SCHEMA,
   FORMAT_SCHEMA,
+  REFINE_SCHEMA,
+  type RefineTurn,
   UNDERSTAND_SCHEMA,
   critiquePrompt,
   draftPrompt,
   formatPrompt,
+  refinePrompt,
   understandPrompt,
   voiceBrief,
 } from "./prompts";
@@ -53,15 +56,24 @@ export function countChars(text: string): number {
   return [...text].length;
 }
 
-export async function runAgent(opts: {
+export interface RunOptions {
   cfg: ResolvedConfig;
   db: D1Database;
   model: ChatModel;
   search: SearchProvider | null;
   input: string;
+  sessionId: string;
+  /** Prior turns in this session. Non-empty means refine rather than start fresh. */
+  history?: RefineTurn[];
+  /** Sources already gathered in this session, reused instead of re-fetched. */
+  priorSources?: SourceDoc[];
   emit: Emit;
-}): Promise<GenerateResult> {
-  const { cfg, db, model, search, input, emit } = opts;
+}
+
+export async function runAgent(opts: RunOptions): Promise<GenerateResult> {
+  if (opts.history?.length) return await runRefine(opts, opts.history);
+
+  const { cfg, db, model, search, input, sessionId, emit } = opts;
   const warnings: string[] = [];
 
   const ask = async (task: string, prompt: string, schema: object) =>
@@ -264,6 +276,7 @@ export async function runAgent(opts: {
   const draftId = crypto.randomUUID();
   await saveDraft(db, {
     id: draftId,
+    sessionId,
     input,
     inputKind: understanding.kind,
     format: formatId,
@@ -274,6 +287,8 @@ export async function runAgent(opts: {
 
   const result: GenerateResult = {
     draftId,
+    sessionId,
+    refined: false,
     format: formatId,
     formatLabel: formatLabel(formatId),
     formatRationale: rationale,
@@ -281,6 +296,149 @@ export async function runAgent(opts: {
     variants,
     sources,
     understanding,
+    warnings: [...new Set(warnings)],
+  };
+
+  await emit({ type: "result", result });
+  return result;
+}
+
+/**
+ * A follow-up turn.
+ *
+ * Skips understanding and format selection -- the session already established
+ * those -- and reuses the sources it gathered. Only genuinely new links in the
+ * instruction are fetched.
+ */
+async function runRefine(opts: RunOptions, history: RefineTurn[]): Promise<GenerateResult> {
+  const { cfg, db, model, input, sessionId, emit } = opts;
+  const warnings: string[] = [];
+  const sources: SourceDoc[] = [...(opts.priorSources ?? [])];
+
+  const ask = async (task: string, prompt: string, schema: object) =>
+    await model.complete(
+      [
+        { role: "system", content: AGENT_ROLE },
+        { role: "user", content: prompt },
+      ],
+      { task, jsonSchema: schema as Record<string, unknown>, maxTokens: 4000 },
+    );
+
+  const previous = history[history.length - 1];
+
+  // Only fetch links this turn introduced; the rest are already in context.
+  const known = new Set(sources.map((s) => s.url));
+  const fresh = extractUrls(input).filter((u) => !known.has(u));
+  if (fresh.length) {
+    await emit({
+      type: "step",
+      step: "resolve",
+      label: "Opening the new link" + (fresh.length > 1 ? "s" : ""),
+      detail: fresh.slice(0, MAX_LINKS).join(", "),
+    });
+    for (const url of fresh.slice(0, MAX_LINKS)) {
+      const xRef = parseXUrl(url);
+      const doc = xRef
+        ? await readXPost(xRef, cfg.xBearerToken || undefined)
+        : await fetchUrlAsText(url);
+      if (doc) sources.push(doc);
+      else warnings.push(`Couldn't read ${url}.`);
+    }
+    await emit({ type: "sources", sources });
+  }
+
+  await emit({ type: "step", step: "recall", label: "Recalling how you write" });
+
+  const [profileRecord, samples] = await Promise.all([
+    getProfile(db),
+    pickSamples(db, { topics: [], format: previous.format, limit: 6 }),
+  ]);
+  const profile = profileRecord.profile;
+  const maxChars = clampMaxChars(cfg, profile.max_chars);
+  const prefs = await relevantPreferences(db, previous.format);
+  const brief = voiceBrief(profile, prefs, samples, profileRecord.handle);
+
+  await emit({ type: "step", step: "refine", label: "Reworking the draft" });
+
+  const parsed = parseJson<{ format?: string; changed?: string; variants?: unknown }>(
+    await ask("refine", refinePrompt(brief, history, input, sources, maxChars), REFINE_SCHEMA),
+  );
+  let variants = toVariants(parsed?.variants);
+  if (!variants.length) throw new Error("The model did not return a usable revision.");
+
+  const formatId = parsed?.format && formatById(parsed.format) ? parsed.format : previous.format;
+  const rationale = parsed?.changed?.trim() || "Applied your change.";
+
+  if (formatId !== previous.format) {
+    await emit({
+      type: "format",
+      format: formatId,
+      label: formatLabel(formatId),
+      rationale,
+    });
+  }
+
+  await emit({ type: "step", step: "critique", label: "Checking it against your rules" });
+
+  try {
+    const review = parseJson<{ variants: unknown; warnings?: string[] }>(
+      await ask(
+        "critique",
+        critiquePrompt(brief, JSON.stringify({ variants }, null, 2), maxChars),
+        CRITIQUE_SCHEMA,
+      ),
+    );
+    if (review) {
+      const revised = toVariants(review.variants);
+      if (revised.length) variants = revised;
+      if (Array.isArray(review.warnings)) {
+        warnings.push(...review.warnings.filter((w) => typeof w === "string" && w.trim()));
+      }
+    }
+  } catch (err) {
+    warnings.push(`Self-check skipped (${errText(err)}).`);
+  }
+
+  for (const variant of variants) {
+    for (const [i, part] of variant.parts.entries()) {
+      part.chars = countChars(part.text);
+      if (part.chars > maxChars) {
+        warnings.push(`Variant part ${i + 1} is ${part.chars} characters, over your ${maxChars} limit.`);
+      }
+    }
+  }
+
+  const draftId = crypto.randomUUID();
+  await saveDraft(db, {
+    id: draftId,
+    sessionId,
+    input,
+    inputKind: "idea",
+    format: formatId,
+    variants,
+    context: { sources },
+    rationale,
+  });
+
+  const result: GenerateResult = {
+    draftId,
+    sessionId,
+    refined: true,
+    format: formatId,
+    formatLabel: formatLabel(formatId),
+    formatRationale: rationale,
+    alternateFormat: null,
+    variants,
+    sources,
+    understanding: {
+      kind: "idea",
+      intent: input,
+      topics: [],
+      claims: [],
+      urls: [],
+      needs_research: false,
+      research_queries: [],
+    },
     warnings: [...new Set(warnings)],
   };
 

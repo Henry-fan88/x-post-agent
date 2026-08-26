@@ -73,6 +73,22 @@ export function mockModel(): ChatModel {
             ],
           });
 
+        case "refine":
+          return JSON.stringify({
+            format: /thread/i.test(input) ? "insight_thread" : "hot_take",
+            changed: `[mock] Pretended to apply: "${firstSentence(input, 80)}"`,
+            variants: [
+              {
+                parts: [`[mock revision] ${firstSentence(input, 180)}`],
+                angle: "Mock revision A.",
+              },
+              {
+                parts: [`[mock revision] Another take on: ${firstSentence(input, 150)}`],
+                angle: "Mock revision B.",
+              },
+            ],
+          });
+
         case "critique":
           return JSON.stringify({
             variants: null, // no revisions needed
