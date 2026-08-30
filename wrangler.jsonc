@@ -43,6 +43,11 @@
     "MODEL_JSON_MODE": "schema",
     // "none" | "brave" | "tavily" | "exa"
     "SEARCH_PROVIDER": "none",
+    // Who reads YouTube captions. "none" uses the direct reader, which works in
+    // local dev and NOT from Cloudflare -- YouTube answers this Worker's egress
+    // with a bot check. Set to "supadata" and add TRANSCRIPT_API_KEY to make
+    // video reading work on the deployed instance.
+    "TRANSCRIPT_PROVIDER": "none",
     // Default X character budget. 280 free, 25000 premium. Set to a readable
     // slice of the premium ceiling: long posts are the point, essays are not.
     // The agent's real limit is profile.max_chars when that is set; this value

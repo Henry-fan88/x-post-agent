@@ -13,6 +13,7 @@ import {
   isSettingKey,
   putSecret,
   putSetting,
+  SECRET_NAMES,
   resolveConfig,
   secretHints,
   SETTING_KEYS,
@@ -20,6 +21,7 @@ import {
 } from "../config/settings";
 import { createModel } from "../llm";
 import { createSearchProvider } from "../tools/search";
+import { createTranscriptProvider } from "../tools/transcript";
 import { readJson } from "./util";
 
 export const settingsRoutes = new Hono<{ Bindings: Env }>();
@@ -69,6 +71,7 @@ settingsRoutes.get("/", async (c) => {
   const cfg = await resolveConfig(c.env, c.env.DB);
   const { model, configured, note } = createModel(cfg);
   const search = createSearchProvider(cfg);
+  const transcripts = createTranscriptProvider(cfg);
   const hints = await secretHints(c.env.DB);
 
   return c.json({
@@ -79,13 +82,18 @@ settingsRoutes.get("/", async (c) => {
       MODEL_BASE_URL: cfg.modelBaseUrl,
       MODEL_JSON_MODE: cfg.modelJsonMode,
       SEARCH_PROVIDER: cfg.searchProvider,
+      TRANSCRIPT_PROVIDER: cfg.transcriptProvider,
       MAX_POST_CHARS: String(cfg.maxPostChars),
     },
     overridden: cfg.overridden,
     model: { name: model.name, configured, note },
     search: { provider: search?.name ?? "none", configured: Boolean(search) },
+    transcripts: {
+      provider: transcripts?.name ?? "none",
+      configured: Boolean(transcripts),
+    },
     secrets: Object.fromEntries(
-      (["MODEL_API_KEY", "SEARCH_API_KEY", "X_BEARER_TOKEN"] as const).map((name) => [
+      SECRET_NAMES.map((name) => [
         name,
         {
           source: cfg.secretSources[name],

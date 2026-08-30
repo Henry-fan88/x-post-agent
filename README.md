@@ -69,6 +69,23 @@ words moved, and making you read both to find that out is worse than giving you
 one. Everything else gets two genuinely different angles — and if the second turns
 out to be the first reworded, it's dropped rather than shown.
 
+**It watches the video.** A YouTube watch page read as HTML is chrome —
+"Subscribe", "Sign in", cookie copy — and none of the talk, which is how an agent
+ends up recommending a video it knows nothing about. Paste a YouTube link and it
+pulls the captions instead, by the method
+[youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) uses:
+YouTube's own InnerTube player endpoint for the caption track list, then the
+track itself. That library is Python and this is a Worker, so the method is
+ported rather than imported.
+
+A three-hour talk is far more text than a prompt can hold, and truncating it
+would hand the model the first fifteen minutes and let it believe that was the
+argument. So the budget is spent across the whole runtime — the opening, evenly
+spaced passages after it, and the moment you linked to if your URL carried a
+`t=` — each stamped with its timestamp, with cuts marked as cuts. If the captions
+don't come back, the link is reported as unread rather than quietly downgraded to
+the watch page.
+
 **It counts characters the way X does.** A CJK character or an emoji costs two,
 and any URL costs 23 however long it is. 140 Chinese characters is a full
 280-character post, which counting code points would have called half full.
@@ -189,6 +206,18 @@ only, and says so when a post would have benefited from a lookup.
 metadata. Without it, public posts are read through oEmbed, which needs no
 credentials and returns the text.
 
+**Video transcripts in production** — the built-in reader talks to YouTube
+directly, which works from a laptop and not from Cloudflare: measured from this
+Worker's own egress, every InnerTube client answers `LOGIN_REQUIRED` / "Sign in
+to confirm you're not a bot" with no caption tracks, while the identical request
+from a home IP returns them. Public front-ends (Invidious, Piped) are blocked the
+same way, and keyless transcript services rate-limit Cloudflare's shared egress
+as one enormous caller. A key is what moves the limit from "every Worker on this
+IP" to "you", so a deployed instance needs one: set `TRANSCRIPT_PROVIDER` to
+`supadata` and put the key in `TRANSCRIPT_API_KEY`, or add both from
+Settings → Video transcripts without redeploying. Left at `none`, YouTube links
+are reported as unread in production rather than drafted from.
+
 **A lock** — set `APP_PASSWORD` and the UI asks for it before it will call the
 API. Worth doing before you put this on a public URL.
 
@@ -235,6 +264,8 @@ src/
     learn.ts          Turning feedback and sources into rules, samples and notes
   tools/
     x.ts              X post reading (API, then oEmbed)
+    youtube.ts        Video reading, by its captions
+    transcript.ts     Captions via a provider, for where YouTube blocks the egress
     fetch-url.ts      HTML to text via HTMLRewriter
     search.ts         Brave / Tavily / Exa behind one interface
   routes/             HTTP handlers

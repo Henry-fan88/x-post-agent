@@ -14,6 +14,12 @@ interface Env {
   SEARCH_API_KEY?: string;
   /** Optional. Improves X post reading; oEmbed is used when absent. */
   X_BEARER_TOKEN?: string;
+  /**
+   * Credential for TRANSCRIPT_PROVIDER. Needed for video captions in production:
+   * YouTube answers Cloudflare egress with a bot check, so a deployed instance
+   * has to read them through an account somewhere.
+   */
+  TRANSCRIPT_API_KEY?: string;
   /** Optional. When set, the API requires this passphrase. */
   APP_PASSWORD?: string;
   /** Present only when the "ai" binding is enabled in wrangler.jsonc. */

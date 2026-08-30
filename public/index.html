@@ -173,6 +173,26 @@
           </section>
 
           <section>
+            <h3>Video transcripts <span class="opt">optional</span></h3>
+            <label>Provider
+              <select id="s-transcript">
+                <option value="none">off (direct)</option>
+                <option value="supadata">Supadata</option>
+              </select>
+            </label>
+            <p id="s-transcript-state" class="muted"></p>
+            <label>Transcript API key
+              <input id="s-transcriptkey" type="password" autocomplete="off" placeholder="leave blank to keep current" />
+            </label>
+            <p class="muted">
+              YouTube answers this Worker's egress with a bot check, so the direct
+              reader only works when you run the agent locally. Set a provider to
+              read videos on the deployed site.
+            </p>
+            <button id="s-transcript-save" type="button">Save transcript settings</button>
+          </section>
+
+          <section>
             <h3>X API <span class="opt">optional</span></h3>
             <p id="s-x-state" class="muted"></p>
             <label>Bearer token

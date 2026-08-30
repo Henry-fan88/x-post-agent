@@ -39,6 +39,18 @@ import { replyProblems } from "../src/agent/reply.ts";
 import { RouteError, detectMode } from "../src/agent/route.ts";
 import { mockModel } from "../src/llm/mock.ts";
 import { relevantPreferences } from "../src/memory/store.ts";
+import { cuesFrom } from "../src/tools/transcript.ts";
+import {
+  condense,
+  paragraphs,
+  parseJson3Cues,
+  parseTimestamp,
+  parseXmlCues,
+  parseYouTubeUrl,
+  pickTrack,
+  stamp,
+  fitVideoText,
+} from "../src/tools/youtube.ts";
 import type {
   AgentEvent,
   GenerateResult,
@@ -528,6 +540,179 @@ check(
 check(
   "the reply critique sees the parent",
   replyCritique.includes("Agents fail because the models aren't good enough."),
+);
+
+/* -------------------------------- youtube -------------------------------- */
+
+group("youtube — the whole video, not its first fifteen minutes");
+
+const YT = "https://www.youtube.com/watch?v=XXpqejgnaB0&t=10576s";
+
+check("a watch link resolves to its video id", parseYouTubeUrl(YT)?.id === "XXpqejgnaB0");
+check(
+  "the same video linked three ways canonicalises to one url",
+  new Set(
+    [
+      "https://youtu.be/dQw4w9WgXcQ?t=43",
+      "https://m.youtube.com/watch?v=dQw4w9WgXcQ&feature=share",
+      "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    ].map((u) => parseYouTubeUrl(u)?.url),
+  ).size === 1,
+);
+check(
+  "a channel or playlist is not a video",
+  !parseYouTubeUrl("https://www.youtube.com/@johnnyharris") &&
+    !parseYouTubeUrl("https://www.youtube.com/playlist?list=PL123"),
+);
+check(
+  "a lookalike host is not YouTube",
+  !parseYouTubeUrl("https://example.com/watch?v=dQw4w9WgXcQ"),
+);
+check(
+  "the moment a link points at survives parsing",
+  parseTimestamp("10576s") === 10576 && parseTimestamp("1h2m30s") === 3750,
+);
+check("timestamps read the way they are written under a video", stamp(10576) === "2:56:16");
+
+check(
+  "json3 captions become cues",
+  JSON.stringify(
+    parseJson3Cues(
+      JSON.stringify({
+        events: [
+          { tStartMs: 0, segs: [{ utf8: "so here " }, { utf8: "we are" }] },
+          { tStartMs: 4200 },
+          { tStartMs: 5000, segs: [{ utf8: "[Music]" }] },
+          { tStartMs: 6000, segs: [{ utf8: "in front of the elephants" }] },
+        ],
+      }),
+    ),
+  ) === JSON.stringify([
+    { start: 0, text: "so here we are" },
+    { start: 6, text: "in front of the elephants" },
+  ]),
+);
+check(
+  "the xml fallback undoes YouTube's double escaping",
+  parseXmlCues(
+    '<transcript><text start="1.5" dur="2">it&amp;#39;s &amp;quot;fine&amp;quot;</text></transcript>',
+  )[0]?.text === `it's "fine"`,
+);
+
+check(
+  "an English auto-caption beats a hand-written translation",
+  pickTrack([
+    { baseUrl: "u1", languageCode: "pt" },
+    { baseUrl: "u2", languageCode: "en", kind: "asr" },
+  ])?.languageCode === "en",
+);
+check(
+  "a video in no preferred language still yields its own captions",
+  pickTrack([{ baseUrl: "u1", languageCode: "ja", kind: "asr" }])?.languageCode === "ja",
+);
+check("a track with no url is not a track", pickTrack([{ languageCode: "en" }]) === null);
+
+// A three-hour talk: 900 cues, four seconds apart, each one nameable.
+const talk = Array.from({ length: 900 }, (_, i) => ({
+  start: i * 12,
+  text: `point ${i} ${"filler ".repeat(12)}`.trim(),
+}));
+const paras = paragraphs(talk);
+const tight = condense(paras, 6000, 10576);
+
+check("cues are gathered into paragraphs, not left as fragments", paras.length < talk.length / 4);
+check("a condensed transcript respects its budget", tight.length <= 6000);
+check(
+  "condensing keeps the opening",
+  tight.includes("point 0"),
+  `starts: ${tight.slice(0, 60)}`,
+);
+check(
+  "condensing reaches the end of a three-hour talk",
+  Number(tight.match(/\[(\d+):\d\d:\d\d\]/g)?.length ?? 0) > 0 &&
+    lastStamp(tight) > 2 * 3600,
+  `last stamp ${lastStamp(tight)}s of ${talk[talk.length - 1].start}s`,
+);
+check(
+  "condensing keeps the moment the user linked to",
+  nearStamp(tight, 10576, 240),
+  `stamps: ${tight.match(/\[[\d:]+\]/g)?.join(" ")}`,
+);
+check("cuts are marked as cuts", tight.includes("[...]"));
+// The prompt divides its budget among the turn's sources, so a stored transcript
+// gets re-fitted on the way in. Cutting its tail there would undo the spreading
+// above -- it drops the end of the talk, which is where a talk lands its point.
+const stored = `Speaker · 3h 0m\n\nCaptions (en):\n${condense(paras, 9000, 10576)}`;
+const refitted = fitVideoText(stored, 4000);
+
+check("re-fitting respects the smaller budget", refitted.length <= 4000);
+check("re-fitting keeps the header", refitted.startsWith("Speaker · 3h 0m"));
+check(
+  "re-fitting still reaches the end of the talk, rather than cutting its tail",
+  lastStamp(refitted) > lastStamp(stored) * 0.75,
+  `refit ends ${lastStamp(refitted)}s, stored ends ${lastStamp(stored)}s`,
+);
+check(
+  "re-fitting drops passages rather than truncating mid-sentence",
+  !refitted.includes("[...truncated]") && /\n\[[\d:]+\] \S/.test(refitted),
+);
+check("a transcript already inside the budget is untouched", fitVideoText(stored, 99999) === stored);
+
+check(
+  "a transcript that fits is left whole",
+  !condense(paragraphs(talk.slice(0, 5)), 6000, null).includes("[...]"),
+);
+
+function stamps(text: string): number[] {
+  return [...text.matchAll(/\[(?:(\d+):)?(\d+):(\d\d)\]/g)].map(
+    (m) => Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]),
+  );
+}
+function lastStamp(text: string): number {
+  return Math.max(0, ...stamps(text));
+}
+function nearStamp(text: string, target: number, within: number): boolean {
+  return stamps(text).some((s) => Math.abs(s - target) <= within);
+}
+
+/* --------------------------- transcript provider -------------------------- */
+
+group("transcript provider — someone else's captions, same shape");
+
+check(
+  "chunked provider output becomes cues, with milliseconds turned into seconds",
+  JSON.stringify(
+    cuesFrom({
+      content: [
+        { text: "so here we are", offset: 0 },
+        { text: "  ", offset: 4000 },
+        { text: "in front of the elephants", offset: 6200 },
+      ],
+    }),
+  ) === JSON.stringify([
+    { start: 0, text: "so here we are" },
+    { start: 6, text: "in front of the elephants" },
+  ]),
+);
+check(
+  "a provider that returns flat text still yields a readable cue",
+  cuesFrom({ content: "one long transcript" })?.[0]?.text === "one long transcript",
+);
+check(
+  "no content at all is 'could not read', not 'read and empty'",
+  cuesFrom({}) === null,
+);
+check(
+  "a video with no captions is empty rather than null",
+  cuesFrom({ content: [] })?.length === 0,
+);
+check(
+  "provider cues survive the same shaping as direct ones",
+  condense(
+    paragraphs(cuesFrom({ content: [{ text: "a ".repeat(400), offset: 0 }] }) ?? []),
+    9000,
+    null,
+  ).startsWith("[0:00]"),
 );
 
 /* -------------------------------- verdict -------------------------------- */

@@ -8,7 +8,12 @@
 
 import { type Encrypted, decryptSecret, encryptSecret, hintOf } from "./crypto";
 
-export const SECRET_NAMES = ["MODEL_API_KEY", "SEARCH_API_KEY", "X_BEARER_TOKEN"] as const;
+export const SECRET_NAMES = [
+  "MODEL_API_KEY",
+  "SEARCH_API_KEY",
+  "X_BEARER_TOKEN",
+  "TRANSCRIPT_API_KEY",
+] as const;
 export type SecretName = (typeof SECRET_NAMES)[number];
 
 export function isSecretName(value: string): value is SecretName {
@@ -22,6 +27,7 @@ export const SETTING_KEYS = [
   "MODEL_BASE_URL",
   "MODEL_JSON_MODE",
   "SEARCH_PROVIDER",
+  "TRANSCRIPT_PROVIDER",
   "MAX_POST_CHARS",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -36,11 +42,17 @@ export interface ResolvedConfig {
   modelBaseUrl: string;
   modelJsonMode: string;
   searchProvider: string;
+  /**
+   * Who reads video captions when this Worker cannot. "none" leaves the direct
+   * reader as the only path, which works in local dev and not from Cloudflare.
+   */
+  transcriptProvider: string;
   maxPostChars: number;
 
   modelApiKey: string;
   searchApiKey: string;
   xBearerToken: string;
+  transcriptApiKey: string;
 
   /** Where each secret came from, for display. Never includes the value. */
   secretSources: Record<SecretName, "env" | "stored" | "none">;
@@ -108,11 +120,16 @@ export async function resolveConfig(env: Env, db: D1Database): Promise<ResolvedC
     modelBaseUrl: setting("MODEL_BASE_URL", env.MODEL_BASE_URL || ""),
     modelJsonMode: setting("MODEL_JSON_MODE", env.MODEL_JSON_MODE || "schema"),
     searchProvider: setting("SEARCH_PROVIDER", env.SEARCH_PROVIDER || "none").toLowerCase(),
+    transcriptProvider: setting(
+      "TRANSCRIPT_PROVIDER",
+      env.TRANSCRIPT_PROVIDER || "none",
+    ).toLowerCase(),
     maxPostChars: Number(setting("MAX_POST_CHARS", env.MAX_POST_CHARS || "280")) || 280,
 
     modelApiKey: values.MODEL_API_KEY,
     searchApiKey: values.SEARCH_API_KEY,
     xBearerToken: values.X_BEARER_TOKEN,
+    transcriptApiKey: values.TRANSCRIPT_API_KEY,
 
     secretSources,
     undecryptable,

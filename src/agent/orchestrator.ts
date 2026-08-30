@@ -32,7 +32,9 @@ import {
 } from "../memory/store";
 import { fetchUrlAsText } from "../tools/fetch-url";
 import type { SearchProvider } from "../tools/search";
+import { createTranscriptProvider } from "../tools/transcript";
 import { extractUrls, parseXUrl, readXPost } from "../tools/x";
+import { parseYouTubeUrl, readYouTubeVideo } from "../tools/youtube";
 import type {
   AgentEvent,
   GenerateResult,
@@ -862,13 +864,23 @@ export async function readLinks(
   const fresh = [...new Set(urls)].filter((u) => !known.has(u)).slice(0, MAX_LINKS);
   const docs: SourceDoc[] = [];
   const failed: string[] = [];
+  // Null unless one is configured, which is the deployed instance's only way to
+  // read a video at all -- see the note at the top of `transcript.ts`.
+  const transcripts = createTranscriptProvider(cfg);
 
   const resolved = await Promise.all(
     fresh.map(async (url) => {
       const xRef = parseXUrl(url);
-      return xRef
-        ? await readXPost(xRef, cfg.xBearerToken || undefined)
-        : await fetchUrlAsText(url);
+      if (xRef) return await readXPost(xRef, cfg.xBearerToken || undefined);
+
+      // A watch page read as HTML is chrome -- "Subscribe", "Sign in" -- and
+      // none of the talk, so there is no falling back to it when the captions
+      // don't come. Better to report the link as unread than to draft a post
+      // from YouTube's furniture.
+      const ytRef = parseYouTubeUrl(url);
+      if (ytRef) return await readYouTubeVideo(ytRef, transcripts);
+
+      return await fetchUrlAsText(url);
     }),
   );
 
