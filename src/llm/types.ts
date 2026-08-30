@@ -24,12 +24,16 @@ export interface ChatModel {
 }
 
 export class ModelError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
+  /** The provider's HTTP status, when the failure came back as one. */
+  readonly status?: number;
+
+  // Written out rather than as a constructor parameter property: those are the
+  // one TypeScript feature that cannot be compiled away by deleting types, so
+  // they break every strip-only runtime -- including the one the eval runs on.
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "ModelError";
+    this.status = status;
   }
 }
 

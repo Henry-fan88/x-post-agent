@@ -43,8 +43,11 @@
     "MODEL_JSON_MODE": "schema",
     // "none" | "brave" | "tavily" | "exa"
     "SEARCH_PROVIDER": "none",
-    // Default X character budget. 280 free, 25000 premium.
-    "MAX_POST_CHARS": "280"
+    // Default X character budget. 280 free, 25000 premium. Set to a readable
+    // slice of the premium ceiling: long posts are the point, essays are not.
+    // The agent's real limit is profile.max_chars when that is set; this value
+    // is the fallback and what the UI counts against.
+    "MAX_POST_CHARS": "4000"
   }
 
   // Uncomment once you pick Workers AI as the provider -- no external key needed.

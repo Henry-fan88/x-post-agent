@@ -44,14 +44,32 @@
           <button id="delete-session" class="icon" type="button" title="Delete this session" hidden>🗑</button>
         </header>
 
+        <div id="rename-row" class="rename-row" hidden>
+          <input
+            id="rename-input"
+            class="rename-input"
+            type="text"
+            maxlength="200"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Session name"
+          />
+          <span class="rename-hint">Enter to save, Esc to cancel</span>
+        </div>
+
         <div id="thread" class="thread">
           <div id="welcome" class="welcome">
             <div class="welcome-mark">✳</div>
             <h2>What are we posting about?</h2>
             <p>
-              Paste a link, an X post, or just type the idea. The agent reads the source,
-              looks things up when that helps, picks a format that suits it, and writes it
-              the way you write.
+              Paste an X post and it drafts a reply to it. Type an idea, or paste an
+              article, and it drafts a post. One or the other, never both — say
+              <em>write a post about this</em> over an X link if you want the post.
+            </p>
+            <p>
+              It reads the source, looks things up when that helps, and writes the way you
+              write. Say <em>read this</em> and it takes the source in without drafting;
+              say <em>learn from this</em> and it keeps what matters.
             </p>
             <div id="starters" class="starters"></div>
           </div>
@@ -62,7 +80,7 @@
             <textarea
               id="input"
               rows="1"
-              placeholder="Paste a link or type an idea…"
+              placeholder="Paste an X post to reply, or type an idea to post…"
               spellcheck="false"
             ></textarea>
             <div class="composer-foot">
@@ -89,6 +107,7 @@
         <button class="tab" data-tab="voice" role="tab" type="button">Voice</button>
         <button class="tab" data-tab="posts" role="tab" type="button">Your posts</button>
         <button class="tab" data-tab="rules" role="tab" type="button">Rules</button>
+        <button class="tab" data-tab="knowledge" role="tab" type="button">Knowledge</button>
       </nav>
 
       <div class="panel-body">
@@ -218,6 +237,22 @@
               <button type="submit">Add</button>
             </form>
             <ul id="pref-list" class="list"></ul>
+          </section>
+        </div>
+
+        <div class="tabpanel" data-panel="knowledge" hidden>
+          <section>
+            <h3>Knowledge</h3>
+            <p class="muted">
+              What the agent has picked up from things you told it to learn. Rules shape
+              how a post is written; these are background it draws on when a post touches
+              the same subject — never material to pad a draft with.
+            </p>
+            <form id="note-form" class="row">
+              <input id="m-note" type="text" placeholder="e.g. Workers bill by CPU time, not wall clock" />
+              <button type="submit">Add</button>
+            </form>
+            <ul id="note-list" class="list"></ul>
           </section>
         </div>
       </div>
