@@ -17,6 +17,12 @@ SEARCH_API_KEY=""
 # metadata (no author stats, no thread context).
 X_BEARER_TOKEN=""
 
+# ---- Video transcripts (needed in production) -----------------------------
+# YouTube answers Cloudflare's egress with "Sign in to confirm you're not a bot",
+# so the built-in reader gets captions in local dev and nothing once deployed.
+# Set TRANSCRIPT_PROVIDER in wrangler.jsonc (or in Settings) to "supadata", then:
+TRANSCRIPT_API_KEY=""
+
 # ---- Access control (optional but recommended once deployed) --------------
 # If set, the UI asks for this passphrase before it will talk to the API.
 APP_PASSWORD=""

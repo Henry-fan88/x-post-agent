@@ -16,6 +16,7 @@ import type {
   StyleProfile,
   Understanding,
 } from "../types";
+import { fitVideoText } from "../tools/youtube";
 import { dominantScript, scriptName } from "./chars";
 import { formatById, formatCatalogue } from "./formats";
 
@@ -236,9 +237,26 @@ const MIN_PER_SOURCE = 1200;
 
 function sourceText(doc: SourceDoc, limit: number): string {
   if (doc.text.length <= limit) return doc.text;
+  // A transcript is re-spread rather than cut. Slicing one would throw away the
+  // end of the video, which is where a talk says what it was for.
+  if (doc.kind === "video") return fitVideoText(doc.text, limit);
   // Say so, or the model treats a cut-off paragraph as the end of the argument.
   return `${doc.text.slice(0, limit)}\n[...truncated]`;
 }
+
+/**
+ * How a source is announced to the model.
+ *
+ * A video is called a video because the model writes about it differently: you
+ * quote a page, but you say what someone said in a talk, and a timestamp is a
+ * citation a reader can click.
+ */
+const SOURCE_LABEL: Record<SourceDoc["kind"], string> = {
+  x_post: "X post",
+  search: "Search result",
+  video: "Video transcript",
+  web: "Web page",
+};
 
 function sourceBlock(sources: SourceDoc[]): string {
   if (!sources.length) return "";
@@ -250,7 +268,7 @@ Use these for facts and specifics. Never state something as fact that isn't supp
 ${sources
   .map(
     (s, i) =>
-      `[S${i + 1}] ${s.kind === "x_post" ? "X post" : s.kind === "search" ? "Search result" : "Web page"}: ${s.title}
+      `[S${i + 1}] ${SOURCE_LABEL[s.kind] ?? "Source"}: ${s.title}
 URL: ${s.url}${s.author ? `\nAuthor: ${s.author}` : ""}
 ${sourceText(s, per)}`,
   )

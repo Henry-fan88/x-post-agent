@@ -80,7 +80,7 @@ export type OutputMode = "post" | "reply";
 
 /** A resolved piece of external context the draft is allowed to rely on. */
 export interface SourceDoc {
-  kind: "x_post" | "web" | "search";
+  kind: "x_post" | "web" | "search" | "video";
   url: string;
   title: string;
   text: string;

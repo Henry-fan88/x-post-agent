@@ -1108,6 +1108,7 @@ async function loadSettings() {
   $("s-baseurl").value = data.settings.MODEL_BASE_URL;
   $("s-jsonmode").value = data.settings.MODEL_JSON_MODE;
   $("s-search").value = data.settings.SEARCH_PROVIDER;
+  $("s-transcript").value = data.settings.TRANSCRIPT_PROVIDER ?? "none";
   applyProviderUi(select.value);
 
   setNote(
@@ -1119,10 +1120,23 @@ async function loadSettings() {
   $("s-key-state").textContent = keyStateText(data.secrets.MODEL_API_KEY, "Model API key");
   $("s-search-state").textContent = keyStateText(data.secrets.SEARCH_API_KEY, "Search key");
   $("s-x-state").textContent = keyStateText(data.secrets.X_BEARER_TOKEN, "X bearer token");
+  $("s-transcript-state").textContent = keyStateText(
+    data.secrets.TRANSCRIPT_API_KEY,
+    "Transcript key",
+  );
 
   // Without a passphrase there is no encryption key, so saving is refused.
   const canStore = data.canStoreSecrets;
-  for (const id of ["s-key", "s-key-save", "s-searchkey", "s-search-save", "s-xtoken", "s-x-save"]) {
+  for (const id of [
+    "s-key",
+    "s-key-save",
+    "s-searchkey",
+    "s-search-save",
+    "s-xtoken",
+    "s-x-save",
+    "s-transcriptkey",
+    "s-transcript-save",
+  ]) {
     $(id).disabled = !canStore;
   }
   if (!canStore) {
@@ -1228,6 +1242,20 @@ $("s-key-save").addEventListener("click", () =>
 
 $("s-key-clear").addEventListener("click", async () => {
   await api("/api/settings/secrets/MODEL_API_KEY", { method: "DELETE" });
+  await Promise.all([loadSettings(), loadConfig()]);
+});
+
+$("s-transcript-save").addEventListener("click", async () => {
+  await api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify({ TRANSCRIPT_PROVIDER: $("s-transcript").value }),
+  });
+  await saveSecret(
+    "TRANSCRIPT_API_KEY",
+    "s-transcriptkey",
+    "s-transcript-state",
+    "the transcript key",
+  );
   await Promise.all([loadSettings(), loadConfig()]);
 });
 
