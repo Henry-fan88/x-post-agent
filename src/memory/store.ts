@@ -5,11 +5,14 @@
  *   - style_profile: the slow-moving model of the user's voice
  *   - samples:       real posts to imitate (few-shot corpus)
  *   - preferences:   atomic rules, injected into the prompt verbatim
+ *   - notes:         what the user knows, distilled from sources they studied
  *   - format_stats:  what has been used lately, so drafts don't all look alike
  */
 
 import type {
   FormatStat,
+  Note,
+  OutputMode,
   Preference,
   Sample,
   StyleProfile,
@@ -18,6 +21,15 @@ import type {
 } from "../types";
 
 export const DEFAULT_USER = "default";
+
+/**
+ * Marks a turn where the agent read a source instead of writing a post.
+ *
+ * Study turns live in `drafts` so a session replays in order, but they are not
+ * drafts: they carry no variants, take no verdict, and are excluded from format
+ * statistics so reading three articles never looks like writing three posts.
+ */
+export const STUDY_KIND = "study";
 
 export const DEFAULT_PROFILE: StyleProfile = {
   voice:
@@ -237,19 +249,54 @@ export async function listPreferences(
   return results ?? [];
 }
 
-/** Preferences that apply to a given format: global ones plus format-scoped ones. */
+/**
+ * The rules that actually apply to this draft.
+ *
+ * Global rules always. Format-scoped rules when the format matches. Topic rules
+ * only when the topic is this post's topic -- which was the bug: every
+ * `topic:*` rule went into every prompt, so a rule the user set while writing
+ * about pricing turned up in the middle of a post about Rust, as an
+ * authoritative-sounding instruction with nothing to do with the draft. A rule
+ * fired on the wrong post is worse than no rule, because the model obeys it.
+ */
 export async function relevantPreferences(
   db: D1Database,
   format: string | null,
+  topics: string[] = [],
   userId = DEFAULT_USER,
 ): Promise<Preference[]> {
   const all = await listPreferences(db, { activeOnly: true }, userId);
-  return all.filter(
-    (p) =>
-      p.scope === "global" ||
-      (format !== null && p.scope === `format:${format}`) ||
-      p.scope.startsWith("topic:"),
-  );
+  return all.filter((p) => {
+    if (p.scope === "global") return true;
+    if (p.scope.startsWith("format:")) return format !== null && p.scope === `format:${format}`;
+    if (p.scope.startsWith("topic:")) return topicsOverlap(p.scope.slice("topic:".length), topics);
+    // An unrecognised scope is not silently treated as global.
+    return false;
+  });
+}
+
+/**
+ * Whether a `topic:` scope is about what this turn is about.
+ *
+ * Compared word by word rather than as substrings, so "pricing" matches
+ * "pricing strategy" without "ai" matching "chair". Both sides are user- or
+ * model-authored tags, so neither is trusted to be normalised.
+ */
+function topicsOverlap(scope: string, topics: string[]): boolean {
+  const words = (text: string) =>
+    new Set(
+      text
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean),
+    );
+  const wanted = words(scope);
+  if (!wanted.size) return false;
+
+  for (const topic of topics) {
+    for (const word of words(topic)) if (wanted.has(word)) return true;
+  }
+  return false;
 }
 
 export async function addPreference(
@@ -359,11 +406,150 @@ export async function recentFormats(
 ): Promise<string[]> {
   const { results } = await db
     .prepare(
-      `SELECT format FROM drafts WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+      `SELECT format FROM drafts
+       WHERE user_id = ? AND input_kind != ?
+       ORDER BY created_at DESC LIMIT ?`,
     )
-    .bind(userId, n)
+    .bind(userId, STUDY_KIND, n)
     .all<{ format: string }>();
   return (results ?? []).map((r) => r.format);
+}
+
+/* --------------------------------- notes -------------------------------- */
+
+export async function listNotes(
+  db: D1Database,
+  opts: { activeOnly?: boolean } = {},
+  userId = DEFAULT_USER,
+): Promise<Note[]> {
+  const sql = opts.activeOnly
+    ? `SELECT * FROM notes WHERE user_id = ? AND active = 1 ORDER BY created_at DESC`
+    : `SELECT * FROM notes WHERE user_id = ? ORDER BY active DESC, created_at DESC`;
+  const { results } = await db.prepare(sql).bind(userId).all<Note>();
+  return results ?? [];
+}
+
+export interface NoteInput {
+  note: string;
+  topics?: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+}
+
+/**
+ * Insert notes, skipping ones the user already has.
+ *
+ * Studying two articles on the same subject would otherwise stack up near-identical
+ * facts, and a knowledge block full of restatements crowds out the draft.
+ */
+export async function addNotes(
+  db: D1Database,
+  notes: NoteInput[],
+  userId = DEFAULT_USER,
+): Promise<Note[]> {
+  const existing = await listNotes(db, {}, userId);
+  const seen = new Set(existing.map((n) => normalise(n.note)));
+  const added: Note[] = [];
+
+  for (const input of notes) {
+    const note = input.note.trim();
+    if (note.length < 8) continue;
+    const key = normalise(note);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    await db
+      .prepare(
+        `INSERT INTO notes (user_id, note, topics, source_url, source_title)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        userId,
+        note,
+        (input.topics ?? "").trim(),
+        (input.sourceUrl ?? "").trim(),
+        (input.sourceTitle ?? "").trim(),
+      )
+      .run();
+
+    const row = await db
+      .prepare(
+        `SELECT * FROM notes WHERE user_id = ? ORDER BY id DESC LIMIT 1`,
+      )
+      .bind(userId)
+      .first<Note>();
+    if (row) added.push(row);
+  }
+  return added;
+}
+
+export async function updateNote(
+  db: D1Database,
+  id: number,
+  note: string,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE notes SET note = ? WHERE id = ? AND user_id = ?`)
+    .bind(note.trim(), id, userId)
+    .run();
+}
+
+export async function setNoteActive(
+  db: D1Database,
+  id: number,
+  active: boolean,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE notes SET active = ? WHERE id = ? AND user_id = ?`)
+    .bind(active ? 1 : 0, id, userId)
+    .run();
+}
+
+export async function deleteNote(
+  db: D1Database,
+  id: number,
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db.prepare(`DELETE FROM notes WHERE id = ? AND user_id = ?`).bind(id, userId).run();
+}
+
+/**
+ * Notes worth putting in front of a draft.
+ *
+ * Scored rather than filtered: a note that shares no topic tag with this post is
+ * usually noise, but with a small corpus it is better to fall back to recency
+ * than to send nothing. Only notes with real overlap survive once there are
+ * enough of them to choose from.
+ */
+export async function relevantNotes(
+  db: D1Database,
+  topics: string[],
+  limit = 6,
+  userId = DEFAULT_USER,
+): Promise<Note[]> {
+  const all = await listNotes(db, { activeOnly: true }, userId);
+  if (!all.length) return [];
+
+  const wanted = topics.map((t) => t.toLowerCase().trim()).filter(Boolean);
+  if (!wanted.length) return all.slice(0, limit);
+
+  const scored = all.map((n, idx) => {
+    const hay = `${n.topics} ${n.note}`.toLowerCase();
+    const overlap = wanted.reduce((acc, t) => (hay.includes(t) ? acc + 1 : acc), 0);
+    return { n, overlap, idx };
+  });
+
+  const hits = scored.filter((x) => x.overlap > 0);
+  // With few notes stored, unrelated ones are cheap and occasionally useful.
+  const pool = hits.length ? hits : all.length <= limit ? scored : [];
+  pool.sort((a, b) => b.overlap - a.overlap || a.idx - b.idx);
+  return pool.slice(0, limit).map((x) => x.n);
+}
+
+function normalise(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9 ]+/g, "").replace(/\s+/g, " ").trim();
 }
 
 /* -------------------------------- drafts -------------------------------- */
@@ -373,6 +559,10 @@ export interface DraftRow {
   session_id: string | null;
   input: string;
   input_kind: string;
+  /** post | reply. Never both -- one turn produces one kind of output. */
+  output_type: string;
+  /** The status a reply belongs under. Null for a post. */
+  in_reply_to_id: string | null;
   format: string;
   variants_json: string;
   context_json: string;
@@ -390,6 +580,9 @@ export async function saveDraft(
     sessionId: string;
     input: string;
     inputKind: string;
+    outputType: OutputMode;
+    /** Required when outputType is "reply"; the caller has already refused to save one without it. */
+    inReplyToId: string | null;
     format: string;
     variants: Variant[];
     context: unknown;
@@ -399,8 +592,8 @@ export async function saveDraft(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO drafts (id, user_id, session_id, input, input_kind, format, variants_json, context_json, rationale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO drafts (id, user_id, session_id, input, input_kind, output_type, in_reply_to_id, format, variants_json, context_json, rationale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       d.id,
@@ -408,6 +601,8 @@ export async function saveDraft(
       d.sessionId,
       d.input,
       d.inputKind,
+      d.outputType,
+      d.inReplyToId,
       d.format,
       JSON.stringify(d.variants),
       JSON.stringify(d.context ?? {}),
@@ -415,6 +610,43 @@ export async function saveDraft(
     )
     .run();
   await Promise.all([recordFormatUse(db, d.format, userId), touchSession(db, d.sessionId, userId)]);
+}
+
+/**
+ * Persist a study turn.
+ *
+ * Unlike `saveDraft` this does not touch format stats -- reading is not writing --
+ * but it does touch the session so the sidebar orders correctly.
+ */
+export async function saveStudyTurn(
+  db: D1Database,
+  t: {
+    id: string;
+    sessionId: string;
+    input: string;
+    /** The digest, shown verbatim when the session is reopened. */
+    summary: string;
+    context: unknown;
+  },
+  userId = DEFAULT_USER,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO drafts (id, user_id, session_id, input, input_kind, output_type, format, variants_json, context_json, rationale)
+       VALUES (?, ?, ?, ?, ?, 'post', ?, '[]', ?, ?)`,
+    )
+    .bind(
+      t.id,
+      userId,
+      t.sessionId,
+      t.input,
+      STUDY_KIND,
+      STUDY_KIND,
+      JSON.stringify(t.context ?? {}),
+      t.summary,
+    )
+    .run();
+  await touchSession(db, t.sessionId, userId);
 }
 
 export async function getDraft(

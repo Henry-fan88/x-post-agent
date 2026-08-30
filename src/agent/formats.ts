@@ -7,7 +7,7 @@
  * writes the same post every time.
  */
 
-import type { FormatStat } from "../types";
+import type { FormatStat, Variant } from "../types";
 
 export interface PostFormat {
   id: string;
@@ -41,9 +41,19 @@ export const FORMATS: PostFormat[] = [
     parts: [1, 1],
   },
   {
+    id: "long_post",
+    label: "Long post",
+    whenToUse:
+      "The idea needs room -- a claim, the evidence under it, and what follows -- and reads better whole than split. The right answer whenever someone asks for something long, comprehensive, or sophisticated.",
+    structure:
+      "One post, several paragraphs. Open on the claim, develop it in the order a reader needs it, close on the consequence. Paragraph breaks carry the structure a thread would have spent post numbers on. Long because the argument earns it, never to fill the budget.",
+    parts: [1, 1],
+  },
+  {
     id: "insight_thread",
     label: "Thread",
-    whenToUse: "The idea genuinely needs several steps. Use sparingly -- most ideas don't.",
+    whenToUse:
+      "Rare. Only when the reader has to stop between steps -- a sequence where each post changes what the next one means -- or when the user asks for a thread outright. Length alone is never the reason: a long argument belongs in long_post.",
     structure:
       "First post stands alone and states the conclusion. Each following post makes one point. 3-7 posts. Never number them, never announce it's a thread.",
     parts: [3, 7],
@@ -116,11 +126,22 @@ export const FORMATS: PostFormat[] = [
 
 const BY_ID = new Map(FORMATS.map((f) => [f.id, f]));
 
+/**
+ * The pseudo-format a reply is stored under.
+ *
+ * Not in the catalogue, and deliberately so: a reply's shape is set by the post
+ * it answers rather than chosen from a list, so it never goes through the format
+ * chooser. It still needs an id, because a draft row has a format column and
+ * because accept/reject rates on replies are worth having separately.
+ */
+export const REPLY_FORMAT = "reply";
+
 export function formatById(id: string): PostFormat | undefined {
   return BY_ID.get(id);
 }
 
 export function formatLabel(id: string): string {
+  if (id === REPLY_FORMAT) return "Reply";
   return BY_ID.get(id)?.label ?? id;
 }
 
@@ -143,8 +164,11 @@ export function formatCatalogue(): string {
 export function varietyBrief(recent: string[], stats: FormatStat[]): string {
   const lines: string[] = [];
 
-  if (recent.length) {
-    const labels = recent.slice(0, 5).map(formatLabel);
+  // Replies are not drawn from this catalogue, so they are not repetition to avoid.
+  const fromCatalogue = recent.filter((id) => BY_ID.has(id));
+
+  if (fromCatalogue.length) {
+    const labels = fromCatalogue.slice(0, 5).map(formatLabel);
     lines.push(
       `Recently used, newest first: ${labels.join(", ")}. Avoid repeating the most recent one unless it is clearly the best fit for this input.`,
     );
@@ -152,7 +176,9 @@ export function varietyBrief(recent: string[], stats: FormatStat[]): string {
     lines.push("No formats used yet -- no repetition to avoid.");
   }
 
-  const judged = stats.filter((s) => s.accepted + s.rejected >= 2);
+  // Same reason: an accept rate on replies says nothing about which post format
+  // to choose, and naming a format the chooser cannot pick is worse than silence.
+  const judged = stats.filter((s) => BY_ID.has(s.format) && s.accepted + s.rejected >= 2);
   if (judged.length) {
     const scored = judged
       .map((s) => ({
@@ -169,4 +195,60 @@ export function varietyBrief(recent: string[], stats: FormatStat[]): string {
   }
 
   return lines.join("\n");
+}
+
+
+/* ------------------------------ variant lock ----------------------------- */
+
+/**
+ * Formats where a second variant is always a worse version of the first.
+ *
+ * A one-liner or a hot take is a single sentence that either lands or doesn't;
+ * asking for two produces the same sentence with the words moved, and the user
+ * has to read both to discover that. A before/after is fixed by its own
+ * structure. Everything else genuinely supports two different angles.
+ */
+const SINGLE_VARIANT = new Set(["one_liner", "hot_take", "question", "before_after"]);
+
+/** How many drafts this turn should produce. Replies are always one. */
+export function variantCount(formatId: string, mode: "post" | "reply" = "post"): 1 | 2 {
+  if (mode === "reply") return 1;
+  return SINGLE_VARIANT.has(formatId) ? 1 : 2;
+}
+
+/** Words that carry the angle, for telling two drafts apart. */
+function shape(text: string): Set<string> {
+  const latin = text.toLowerCase().match(/[a-z][a-z0-9'-]{3,}/g) ?? [];
+  const cjk = text.match(/[\u3040-\u30ff\u4e00-\u9fff]/g) ?? [];
+  const bigrams = cjk.slice(0, -1).map((c, i) => c + cjk[i + 1]);
+  return new Set([...latin, ...bigrams]);
+}
+
+/** How much of the shorter draft is also in the longer one. */
+function similarity(a: string, b: string): number {
+  const left = shape(a);
+  const right = shape(b);
+  if (!left.size || !right.size) return 0;
+  let shared = 0;
+  for (const word of left) if (right.has(word)) shared += 1;
+  return shared / Math.min(left.size, right.size);
+}
+
+const PARAPHRASE = 0.72;
+
+/**
+ * Hold the model to the variant count, and drop a second draft that is the
+ * first one reworded.
+ *
+ * The count is enforced here rather than trusted from the prompt, because a
+ * model asked for one draft will still occasionally hand back two, and the
+ * whole point of the lock is that the user is not made to choose between a post
+ * and its own paraphrase.
+ */
+export function clampVariants(variants: Variant[], want: 1 | 2): Variant[] {
+  const kept = variants.slice(0, want);
+  if (kept.length < 2) return kept;
+
+  const [first, second] = kept.map((v) => v.parts.map((p) => p.text).join("\n"));
+  return similarity(first, second) >= PARAPHRASE ? [kept[0]] : kept;
 }

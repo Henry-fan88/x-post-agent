@@ -2,16 +2,21 @@
 
 import { Hono } from "hono";
 import {
+  addNotes,
   addPreference,
   addSamples,
+  deleteNote,
   deletePreference,
   deleteSample,
   getFormatStats,
   getProfile,
+  listNotes,
   listPreferences,
   listSamples,
   saveProfile,
+  setNoteActive,
   setPreferenceActive,
+  updateNote,
   updatePreferenceRule,
 } from "../memory/store";
 import type { StyleProfile } from "../types";
@@ -103,6 +108,46 @@ memoryRoutes.delete("/preferences/:id", async (c) => {
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id)) return c.json({ error: "Bad id." }, 400);
   await deletePreference(c.env.DB, id);
+  return c.json({ deleted: true });
+});
+
+/* --------------------------------- notes --------------------------------- */
+
+/**
+ * What the agent has learned from sources, as opposed to how it has learned to
+ * write. Same edit-mute-delete affordances as rules, because a note is just as
+ * much a guess.
+ */
+memoryRoutes.get("/notes", async (c) => c.json({ notes: await listNotes(c.env.DB) }));
+
+memoryRoutes.post("/notes", async (c) => {
+  const body = await readJson<{ note: string; topics: string }>(c);
+  if (!body.note?.trim()) return c.json({ error: "A note is required." }, 400);
+  await addNotes(c.env.DB, [{ note: body.note, topics: body.topics ?? "" }]);
+  return c.json({ notes: await listNotes(c.env.DB) });
+});
+
+memoryRoutes.patch("/notes/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await readJson<{ active: boolean; note: string }>(c);
+  if (!Number.isInteger(id)) return c.json({ error: "Bad id." }, 400);
+
+  const hasActive = typeof body.active === "boolean";
+  const hasNote = typeof body.note === "string" && body.note.trim().length > 0;
+  if (!hasActive && !hasNote) {
+    return c.json({ error: "Send an active flag, note text, or both." }, 400);
+  }
+
+  if (hasNote) await updateNote(c.env.DB, id, body.note as string);
+  if (hasActive) await setNoteActive(c.env.DB, id, body.active as boolean);
+
+  return c.json({ notes: await listNotes(c.env.DB) });
+});
+
+memoryRoutes.delete("/notes/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "Bad id." }, 400);
+  await deleteNote(c.env.DB, id);
   return c.json({ deleted: true });
 });
 

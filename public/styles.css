@@ -18,6 +18,9 @@
   --faint: #a8a29e;
   --accent: #c2410c;
   --accent-soft: rgba(194, 65, 12, 0.09);
+  /* Replies read differently from posts, so they are coloured differently. */
+  --reply: #1d4ed8;
+  --reply-soft: rgba(29, 78, 216, 0.09);
   --ok: #15803d;
   --danger: #b91c1c;
   --shadow: 0 1px 2px rgba(28, 25, 23, 0.05), 0 1px 3px rgba(28, 25, 23, 0.04);
@@ -46,6 +49,8 @@
     --faint: #78716c;
     --accent: #fb923c;
     --accent-soft: rgba(251, 146, 60, 0.13);
+    --reply: #7dd3fc;
+    --reply-soft: rgba(125, 211, 252, 0.14);
     --ok: #4ade80;
     --danger: #f87171;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -224,10 +229,17 @@ body {
   /* The column must be declared. Without it the implicit column sizes to
      content, so a long draft widens the whole pane instead of wrapping. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* head, rename row, thread, composer. Row 2 collapses to nothing while the
+     rename row is hidden, and every row is placed explicitly so an optional
+     child cannot shift the others onto the wrong track. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
 }
+.main-head { grid-row: 1; }
+.rename-row { grid-row: 2; }
+.thread { grid-row: 3; }
+.composer-wrap { grid-row: 4; }
 
 .main-head {
   display: flex;
@@ -251,6 +263,44 @@ body {
   max-width: min(52ch, 60%);
 }
 .grow { flex: 1; }
+
+/* Inline rename, in place of a browser prompt. Sits directly under the header
+   so the field lines up with the title it is editing. */
+.rename-row[hidden] { display: none; }
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.rename-input {
+  flex: 0 1 min(52ch, 100%);
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+}
+.rename-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.rename-hint {
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .rename-hint { display: none; }
+}
 
 /* -------------------------------- thread --------------------------------- */
 
@@ -350,6 +400,7 @@ body {
   border-radius: 999px;
   padding: 3px 9px;
 }
+.badge.badge-reply { color: var(--reply); background: var(--reply-soft); }
 .reply-why { font-size: 12.5px; color: var(--muted); flex: 1 1 16ch; min-width: 0; overflow-wrap: anywhere; }
 
 /* ------------------------------ post preview ----------------------------- */
@@ -471,6 +522,8 @@ body {
 }
 .act:hover { background: var(--surface); color: var(--text); border-color: var(--border); opacity: 1; }
 .act.primary { color: var(--accent); }
+/* A reply that has lost its parent id: the button still exists, and says why. */
+.act.broken { color: var(--danger); }
 .act.done { color: var(--ok); }
 
 /* -------------------------------- editor --------------------------------- */
@@ -537,6 +590,40 @@ details.sources ul { margin: 7px 0 0; padding-left: 18px; }
 details.sources li { margin: 3px 0; }
 details.sources a { color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--border); }
 details.sources a:hover { color: var(--accent); border-color: var(--accent); }
+
+/* -------------------------------- reading -------------------------------- */
+
+/* A source the agent read rather than posted about. Deliberately quieter than a
+   draft: it is something to look over, not something to judge. */
+.study-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.study-list { font-size: 13px; color: var(--text-2); }
+.study-list strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.study-list ul { margin: 0; padding-left: 18px; }
+.study-list li { margin: 3px 0; line-height: 1.55; }
+
+/* The angle chips reuse the welcome starters, but read as a list here. */
+.study-list .starters {
+  justify-content: flex-start;
+  margin-top: 0;
+  text-align: left;
+}
+.study-list .starter { text-align: left; }
+
+.study-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 
 /* --------------------------------- trace --------------------------------- */
 

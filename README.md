@@ -1,7 +1,9 @@
 # x-post-agent
 
-Send it an idea or a link. It reads the source, looks things up when that helps,
-picks a format that suits the idea, and writes the post in your voice.
+Send it an idea or a link and it writes the post in your voice. Paste someone
+else's X post and it writes a reply to go under it. Or hand it something to read
+and it will take the source in rather than post about it -- permanently, if you
+ask.
 
 It runs on Cloudflare Workers, keeps its memory in D1, and treats the model
 provider as configuration — so you can plug in a key whenever you pick one.
@@ -9,21 +11,71 @@ provider as configuration — so you can plug in a key whenever you pick one.
 ```
 you ──▶ [ one input box ]
               │
-              ▼
-   understand ─▶ open links ─▶ research ─▶ recall your voice
-              ─▶ choose format ─▶ draft ×2 ─▶ self-check
+              ├── an idea, or an article ──▶ understand ─▶ open links ─▶ research
+              │                           ─▶ recall your voice ─▶ choose format
+              │                           ─▶ draft ─▶ self-check
+              │                                   │
+              │                                   ▼
+              │             1 or 2 drafts, why that format, and the sources used
               │
-              ▼
-        two drafts, a reason for the format, and the sources used
+              ├── an X post ──▶ read it ─▶ recall your voice
+              │              ─▶ draft one reply ─▶ check it as a reply
+              │                              │
+              │                              ▼
+              │              one reply, and the post it belongs under
+              │
+              └── "read this" ──▶ open links ─▶ distil ─▶ (learn)
+                                             │
+                                             ▼
+                          what it says, what it's worth posting about, and
+                          — only if you asked — what got kept
 ```
 
 ## What makes it more than a prompt
 
-**It remembers, in four separate ways.** A *style profile* (the slow-moving
+**It remembers, in five separate ways.** A *style profile* (the slow-moving
 description of your voice), *samples* (real posts of yours, used as few-shot
-examples), *rules* (atomic instructions you or it wrote down), and *format
-stats* (what you've posted lately and what you've rejected). All in D1, all
-editable from the UI.
+examples), *rules* (atomic instructions you or it wrote down), *notes* (what it
+learned from sources you told it to read), and *format stats* (what you've posted
+lately and what you've rejected). All in D1, all editable from the UI.
+
+The first four all answer *how you write*. Notes answer *what you know*, which is
+why they are a separate table rather than more rules: a rule is injected into
+every draft, while a note only surfaces when a post touches the same topic, and
+the prompt is explicit that knowing something is not a reason to put it in the
+post.
+
+**A post and a reply are different jobs, and one turn does one of them.** Paste
+an X post and you get exactly one reply, drafted to sit under that post; type an
+idea and you get a post. Never both in one run, and a reply always carries the
+status id it belongs to, so *Reply on X* opens X threaded rather than dropping
+your reply into an empty composer. Want a post *about* an X post instead? Say
+*write a post about this* — that phrasing turns the link from a reply target into
+a source.
+
+The split is not cosmetic. A reply is read directly under the thing it answers,
+so everything a standalone post does to earn attention — the hook, the setup,
+restating the premise — works against it there. Replies are drafted from their
+own prompt and checked against the parent, and the shapes that reliably fail
+(recapping the parent, complimenting it, opening with the handle, ending on a
+question asked for engagement, a call to action) are caught in code before the
+model gets a chance to review its own work — then handed back for one repair
+pass. Whatever survives that is shown to you as a warning rather than passed off
+as fine.
+
+**One draft or two, depending on the shape.** A one-liner, hot take, open
+question or before/after gets one draft: a second is the same sentence with the
+words moved, and making you read both to find that out is worse than giving you
+one. Everything else gets two genuinely different angles — and if the second turns
+out to be the first reworded, it's dropped rather than shown.
+
+**It counts characters the way X does.** A CJK character or an emoji costs two,
+and any URL costs 23 however long it is. 140 Chinese characters is a full
+280-character post, which counting code points would have called half full.
+
+**It answers in the language it was addressed in.** Chinese in, Chinese out. For
+a reply, it matches the post being replied to rather than your one-line
+instruction about it.
 
 **It doesn't write the same post every time.** There are 13 formats — one-liner,
 hot take, thread, build log, teardown, reaction, and so on — each with a note on
@@ -44,8 +96,28 @@ keeps only high-confidence generalisations, writes them at low weight marked
 listed in **Settings → Rules**, where rules can be edited in place, muted, or
 deleted — editing one promotes it to a rule you own.
 
-**It never posts for you.** "Open in X" launches X's compose window prefilled;
-you review and hit post. There's no write path to X anywhere in the code.
+**It reads what you give it, and learns when you ask.** Paste a link and it opens
+the page, pulls the readable text out of it, and drafts from that. Say *read this*
+instead and it stops after reading: you get what the source argues, what a reader
+would take from it, and the angles in it worth posting -- and the source stays in
+the session, so three turns later "now write the thread" needs no second fetch.
+
+Say *learn from this* and it also decides what should outlive the session. Facts,
+positions, numbers and vocabulary become notes. Style rules and changes to your
+voice profile are held to a higher bar: they only happen if you said the source
+represents how *you* want to write, because reading an essay is not consent to
+write like its author. Everything it keeps is listed inline with an undo, and
+lives in **Settings → Knowledge**.
+
+Intent is read from your words -- "read this", "learn from this", "remember this"
+-- with a deliberate bias toward drafting, since an unwanted draft is cheaper than
+a silent write to memory. "Learn from this and write me a thread" does both. When
+the phrasing misses, every source carries a **Learn from this** button, which is
+also how you keep something you only meant to read at the time.
+
+**It never posts for you.** *Open in X* launches X's compose window prefilled;
+*Reply on X* opens the same composer already threaded under the right post. You
+review and hit post. There's no write path to X anywhere in the code.
 
 ## Quick start
 
@@ -55,6 +127,10 @@ npx wrangler d1 migrations apply x-post-agent-db --local
 npm run db:seed:local   # optional starter voice profile
 npm run dev
 ```
+
+`npm run eval` checks the decisions that must not drift — post vs reply, how many
+drafts come back, X's weighted character count, which language to answer in, and
+the reply shapes that get rejected. It calls no network and needs no API key.
 
 Open http://localhost:8787. It works immediately on a built-in **mock provider** —
 the full pipeline runs, memory is written, the UI is exercisable — the drafts are
@@ -130,14 +206,25 @@ npm run deploy
 
 `database_id` in `wrangler.jsonc` is a placeholder until you run `d1 create`.
 
+Already deployed? Migrations are additive, so an upgrade is the migration and the
+deploy, in that order:
+
+```bash
+npx wrangler d1 migrations apply x-post-agent-db --remote && npm run deploy
+```
+
 ## Layout
 
 ```
 src/
   index.ts            Worker entry: routing, passphrase gate, /api/config
   agent/
-    orchestrator.ts   The pipeline, and the events it streams to the UI
-    formats.ts        13 post formats + the anti-repetition logic
+    orchestrator.ts   Both pipelines, and the events they stream to the UI
+    route.ts          Post or reply? Decided once, before anything else runs
+    intent.ts         Post about this, or take this in?
+    formats.ts        13 post formats, the anti-repetition logic, the variant lock
+    reply.ts          The reply shapes that must not ship
+    chars.ts          X's weighted character count, and which script text is in
     prompts.ts        Stage prompts and their JSON schemas
   config/
     settings.ts       Runtime config: wrangler vars as defaults, D1 as override
@@ -145,7 +232,7 @@ src/
   llm/                Provider adapters behind one ChatModel interface
   memory/
     store.ts          D1 reads and writes
-    learn.ts          Turning feedback into rules and samples
+    learn.ts          Turning feedback and sources into rules, samples and notes
   tools/
     x.ts              X post reading (API, then oEmbed)
     fetch-url.ts      HTML to text via HTMLRewriter
@@ -154,6 +241,7 @@ src/
 public/               The UI: one HTML file, one CSS file, one JS module
 migrations/           D1 schema
 db/seed.sql           Optional starter memory
+eval/                 Offline checks for the rules above. No network, no key
 ```
 
 ## API
@@ -161,7 +249,8 @@ db/seed.sql           Optional starter memory
 | Method | Path | |
 |---|---|---|
 | `GET` | `/api/config` | What's configured; drives the UI |
-| `POST` | `/api/generate` | `{input, sessionId?}` → SSE stream of progress, then the drafts. With a `sessionId` it refines that session's last draft |
+| `POST` | `/api/generate` | `{input, sessionId?, mode?}` → SSE stream of progress, then the drafts. `mode` is `post` or `reply` and overrides the router; asking for `reply` with no X link in the input is a 400. With a `sessionId` it refines that session's last draft, keeping its mode. A "read this" / "learn from this" input streams a reading instead |
+| `POST` | `/api/learn` | `{url, sessionId?, instruction?}` — read one source and commit what's worth keeping |
 | `POST` | `/api/feedback` | `{draftId, verdict, finalText?, note?}` — this is what teaches it |
 | `GET` | `/api/sessions` | Sessions, newest first |
 | `GET` | `/api/sessions/:id` | One session and every turn in it |
@@ -170,11 +259,16 @@ db/seed.sql           Optional starter memory
 | `GET`/`POST`/`DELETE` | `/api/memory/samples` | Writing samples |
 | `GET`/`POST`/`DELETE` | `/api/memory/preferences` | Rules |
 | `PATCH` | `/api/memory/preferences/:id` | Edit rule text, mute/unmute, or both |
+| `GET`/`POST`/`DELETE` | `/api/memory/notes` | What it learned from sources |
+| `PATCH` | `/api/memory/notes/:id` | Edit note text, mute/unmute, or both |
 | `GET` | `/api/memory/stats` | Per-format usage and acceptance |
 | `GET`/`PUT` | `/api/settings` | Provider, model, base URL, JSON mode |
 | `PUT`/`DELETE` | `/api/settings/secrets/:name` | Store or remove an encrypted key. Never returns plaintext |
 | `POST` | `/api/settings/test` | Round-trip the configured model |
 | `GET` | `/api/settings/models` | Model catalogue for the current provider |
+
+The result of a generate carries `mode` (`post` or `reply`) and `inReplyToId`,
+which is non-null exactly when the mode is `reply`.
 
 `verdict` is `posted`, `edited`, or `rejected`. Sending `edited` with the text
 you actually posted is the single highest-value thing you can do — it's how the

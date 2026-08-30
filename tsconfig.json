@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es2022",
     "lib": ["es2022"],
-    "module": "es2022",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "types": ["./worker-configuration.d.ts"],
     "jsx": "react-jsx",
@@ -14,8 +14,11 @@
     "allowJs": true,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
+    // The eval imports source modules with explicit .ts extensions so Node can
+    // resolve them without a build step. Safe here because nothing is emitted.
+    "allowImportingTsExtensions": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts"],
+  "include": ["src/**/*.ts", "eval/**/*.ts", "worker-configuration.d.ts"],
   "exclude": ["node_modules", "dist", ".wrangler"]
 }

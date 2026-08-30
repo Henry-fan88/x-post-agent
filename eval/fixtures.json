@@ -1,0 +1,286 @@
+{
+  "routing": [
+    {
+      "name": "a bare idea is a post",
+      "input": "the thing nobody says about agent frameworks is that the hard part is the retry policy",
+      "mode": "post"
+    },
+    {
+      "name": "an article url is a post with a source",
+      "input": "https://blog.cloudflare.com/workers-billing-model good read on how they bill CPU time",
+      "mode": "post"
+    },
+    {
+      "name": "an X status url on its own is a reply to it",
+      "input": "https://x.com/foo/status/123",
+      "mode": "reply",
+      "inReplyToId": "123"
+    },
+    {
+      "name": "asking for a post about an X url is a post",
+      "input": "write a post about this https://x.com/foo/status/123",
+      "mode": "post"
+    },
+    {
+      "name": "\"post about\" alone still forces a post",
+      "input": "post about https://x.com/foo/status/123",
+      "mode": "post"
+    },
+    {
+      "name": "quoting is a standalone post, not an API quote tweet",
+      "input": "quote this https://x.com/foo/status/123",
+      "mode": "post"
+    },
+    {
+      "name": "riffing is a post",
+      "input": "riff on https://x.com/foo/status/123",
+      "mode": "post"
+    },
+    {
+      "name": "an article plus an X url with no extra language replies to the X post",
+      "input": "https://blog.example.com/inference-costs https://x.com/foo/status/456",
+      "mode": "reply",
+      "inReplyToId": "456"
+    },
+    {
+      "name": "asking to reply wins over the word 'write'",
+      "input": "write a reply to https://x.com/foo/status/789",
+      "mode": "reply",
+      "inReplyToId": "789"
+    },
+    {
+      "name": "explicit post beats an X url",
+      "input": "https://x.com/foo/status/123",
+      "explicit": "post",
+      "mode": "post"
+    },
+    {
+      "name": "explicit reply picks up the status id",
+      "input": "something about https://x.com/foo/status/321",
+      "explicit": "reply",
+      "mode": "reply",
+      "inReplyToId": "321"
+    },
+    {
+      "name": "explicit reply with nothing to reply to is an error",
+      "input": "reply to that thing he said",
+      "explicit": "reply",
+      "error": true
+    },
+    {
+      "name": "an X profile link is not a status, so it is a post",
+      "input": "https://x.com/foo is worth following",
+      "mode": "post"
+    },
+    {
+      "name": "twitter.com and mobile links route the same way",
+      "input": "https://mobile.twitter.com/foo/status/999",
+      "mode": "reply",
+      "inReplyToId": "999"
+    },
+    {
+      "name": "a trailing paren does not break the id",
+      "input": "look at this (https://x.com/foo/status/555)",
+      "mode": "reply",
+      "inReplyToId": "555"
+    },
+    {
+      "name": "Chinese input routes on the link, not the language",
+      "input": "https://x.com/foo/status/777",
+      "mode": "reply",
+      "inReplyToId": "777"
+    },
+    {
+      "name": "asking in Chinese for a post gives a post",
+      "input": "写一条帖 https://x.com/foo/status/777",
+      "mode": "post"
+    },
+    {
+      "name": "Chinese: 回复这条 replies",
+      "input": "回复这条 https://x.com/foo/status/808",
+      "mode": "reply",
+      "inReplyToId": "808"
+    },
+    {
+      "name": "Chinese: 发一条推 posts",
+      "input": "发一条推 https://x.com/foo/status/808",
+      "mode": "post"
+    },
+    {
+      "name": "Chinese: 写 inside an ordinary word does not force a post",
+      "input": "他写的推理很有意思 https://x.com/foo/status/808",
+      "mode": "reply",
+      "inReplyToId": "808"
+    }
+  ],
+  "variants": [
+    {
+      "format": "one_liner",
+      "mode": "post",
+      "expect": 1
+    },
+    {
+      "format": "hot_take",
+      "mode": "post",
+      "expect": 1
+    },
+    {
+      "format": "question",
+      "mode": "post",
+      "expect": 1
+    },
+    {
+      "format": "before_after",
+      "mode": "post",
+      "expect": 1
+    },
+    {
+      "format": "build_log",
+      "mode": "post",
+      "expect": 2
+    },
+    {
+      "format": "numbered_list",
+      "mode": "post",
+      "expect": 2
+    },
+    {
+      "format": "quote_reaction",
+      "mode": "post",
+      "expect": 2
+    },
+    {
+      "format": "insight_thread",
+      "mode": "post",
+      "expect": 2
+    },
+    {
+      "format": "long_post",
+      "mode": "post",
+      "expect": 2
+    },
+    {
+      "format": "reply",
+      "mode": "reply",
+      "expect": 1
+    },
+    {
+      "format": "build_log",
+      "mode": "reply",
+      "expect": 1
+    },
+    {
+      "format": "quote_reaction",
+      "mode": "reply",
+      "expect": 1
+    }
+  ],
+  "replies": [
+    {
+      "name": "a compliment is not a reply",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "Great post! Love this.",
+      "fails": true
+    },
+    {
+      "name": "congratulations is not a reply",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "Congrats! Well said.",
+      "fails": true
+    },
+    {
+      "name": "restating the parent is not a reply",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "So you moved inference onto your own chips and got 3x the tokens per second of the old baseline at about a third of the cost.",
+      "fails": true
+    },
+    {
+      "name": "a reply must not open with the handle",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "@someone we saw 1.4x until the scheduler stopped batching across sequence lengths.",
+      "fails": true
+    },
+    {
+      "name": "a reply carries no call to action",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "Interesting numbers. I'm building something similar, link in bio.",
+      "fails": true
+    },
+    {
+      "name": "a reply does not end on a farmed question",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "The cost drop is the interesting half of that. What do you think?",
+      "fails": true
+    },
+    {
+      "name": "a reply does not open like a standalone post",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "Most people don't realise inference cost is a scheduling problem before it is a silicon problem.",
+      "fails": true
+    },
+    {
+      "name": "a reply stays inside the budget",
+      "parent": "We moved inference onto our own chips.",
+      "reply": "点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点点",
+      "fails": true
+    },
+    {
+      "name": "one concrete point with a number passes",
+      "parent": "We moved inference onto our own chips. 3x the tokens per second of the old baseline, about a third of the cost.",
+      "reply": "The 3x is the part people will miss. We were stuck at 1.4x until the scheduler stopped batching across sequence lengths.",
+      "fails": false
+    },
+    {
+      "name": "a short concrete disagreement passes",
+      "parent": "Agents fail because the models aren't good enough yet.",
+      "reply": "Not what we saw. Ours failed on retries, not reasoning: 80% of the incidents were a tool timing out twice.",
+      "fails": false
+    },
+    {
+      "name": "a Chinese reply with a number passes",
+      "parent": "我们把推理迁到了自研芯片上，吞吐是原来的三倍。",
+      "reply": "三倍这个数字要看批量大小。我们在小批量下只有一点四倍，调度器改掉之后才追上来。",
+      "fails": false
+    }
+  ],
+  "language": [
+    {
+      "name": "a Chinese parent asks for a Chinese reply",
+      "text": "我们把推理迁到了自研芯片上，吞吐是原来的三倍，成本大概只有三分之一。",
+      "script": "cjk"
+    },
+    {
+      "name": "an English parent asks for an English reply",
+      "text": "We moved inference onto our own chips this week and the numbers held up.",
+      "script": "latin"
+    },
+    {
+      "name": "a Chinese post carrying an English link is still Chinese",
+      "text": "这篇讲得很清楚 https://blog.example.com/inference-costs 值得一读",
+      "script": "cjk"
+    }
+  ],
+  "chars": [
+    {
+      "name": "140 CJK characters is a full 280-character post",
+      "text": "中",
+      "repeat": 140,
+      "expect": 280
+    },
+    {
+      "name": "a long URL costs 23",
+      "text": "https://example.com/a/very/long/path/that/keeps/going/and/going",
+      "expect": 23
+    },
+    {
+      "name": "plain latin counts one per character",
+      "text": "hello world",
+      "expect": 11
+    },
+    {
+      "name": "an emoji costs two",
+      "text": "🔥",
+      "expect": 2
+    }
+  ]
+}
